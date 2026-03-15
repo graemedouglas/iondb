@@ -1,0 +1,32 @@
+[package]
+name = "iondb-io"
+description = "I/O backend implementations for IonDB — memory, file, raw flash"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["io-mem"]
+std = ["iondb-core/std"]
+alloc = ["iondb-core/alloc"]
+io-mem = []
+io-file = ["std"]
+io-raw = []
+async-io = []
+failpoint = []
+
+[dependencies]
+iondb-core.workspace = true
+
+# Lints: same as workspace but unsafe_code is allowed for I/O implementations
+[lints.rust]
+missing_docs = "warn"
+unused_results = "warn"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+module_name_repetitions = "allow"

@@ -1,0 +1,20 @@
+[package]
+name = "iondb-tx"
+description = "Transaction manager, MVCC, and isolation for IonDB"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+std = ["iondb-core/std"]
+alloc = ["iondb-core/alloc"]
+acid = []
+concurrency = ["alloc"]
+savepoints = []
+
+[dependencies]
+iondb-core.workspace = true
+
+[lints]
+workspace = true

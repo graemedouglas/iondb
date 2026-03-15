@@ -1,0 +1,20 @@
+[package]
+name = "iondb-query"
+description = "LINQ-style embedded query DSL for IonDB"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+std = ["iondb-core/std"]
+alloc = ["iondb-core/alloc"]
+query = []
+query-alloc = ["alloc", "query"]
+query-macro = ["query"]
+
+[dependencies]
+iondb-core.workspace = true
+
+[lints]
+workspace = true

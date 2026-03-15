@@ -1,0 +1,16 @@
+[package]
+name = "iondb-core"
+description = "Core traits, error types, and page format for IonDB — no_std by default"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+std = []
+alloc = []
+
+[dependencies]
+
+[lints]
+workspace = true

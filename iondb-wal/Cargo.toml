@@ -1,0 +1,17 @@
+[package]
+name = "iondb-wal"
+description = "Write-ahead log for IonDB — no_std compatible"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+std = ["iondb-core/std"]
+alloc = ["iondb-core/alloc"]
+
+[dependencies]
+iondb-core.workspace = true
+
+[lints]
+workspace = true

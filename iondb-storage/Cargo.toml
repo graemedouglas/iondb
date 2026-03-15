@@ -1,0 +1,20 @@
+[package]
+name = "iondb-storage"
+description = "Storage engine implementations for IonDB — B+ tree, extendible hash, linear hash"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["storage-bptree"]
+std = ["iondb-core/std"]
+alloc = ["iondb-core/alloc"]
+storage-bptree = []
+storage-hash-ext = []
+storage-hash-linear = []
+
+[dependencies]
+iondb-core.workspace = true
+
+[lints]
+workspace = true

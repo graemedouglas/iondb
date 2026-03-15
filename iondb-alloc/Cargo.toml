@@ -1,0 +1,30 @@
+[package]
+name = "iondb-alloc"
+description = "Pluggable memory allocators for IonDB — static pool, bump, system"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["alloc-static"]
+std = ["iondb-core/std"]
+alloc = ["iondb-core/alloc"]
+alloc-static = []
+alloc-bump = ["alloc"]
+alloc-system = ["std"]
+
+[dependencies]
+iondb-core.workspace = true
+
+# Lints: same as workspace but unsafe_code is allowed for allocator implementations
+[lints.rust]
+missing_docs = "warn"
+unused_results = "warn"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+module_name_repetitions = "allow"

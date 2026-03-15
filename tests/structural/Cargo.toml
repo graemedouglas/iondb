@@ -1,0 +1,17 @@
+[package]
+name = "iondb-structural-tests"
+description = "Structural tests that validate the shape of the IonDB codebase"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+toml = "0.8"
+walkdir = "2"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }

@@ -1,0 +1,20 @@
+[package]
+name = "iondb-buffer"
+description = "Buffer pool / page cache for IonDB"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+std = ["iondb-core/std"]
+alloc = ["iondb-core/alloc"]
+buffer-pool = []
+eviction-lru = ["buffer-pool"]
+eviction-clock = ["buffer-pool"]
+
+[dependencies]
+iondb-core.workspace = true
+
+[lints]
+workspace = true

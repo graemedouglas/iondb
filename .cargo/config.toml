@@ -1,0 +1,22 @@
+# Cargo configuration for cross-compilation targets.
+#
+# QEMU runners are configured so that `cargo test --target <triple>`
+# automatically boots the emulator, loads the test binary, and reports results.
+
+[target.thumbv6m-none-eabi]
+# runner = "qemu-system-arm -cpu cortex-m0 -machine lm3s6965evb -nographic -semihosting-config enable=on,target=native -kernel"
+# Uncomment when QEMU runner is configured. For now, build-only validation.
+
+[target.thumbv7em-none-eabihf]
+# runner = "qemu-system-arm -cpu cortex-m4 -machine netduinoplus2 -nographic -semihosting-config enable=on,target=native -kernel"
+
+[target.riscv32imac-unknown-none-elf]
+# runner = "qemu-system-riscv32 -machine virt -nographic -semihosting-config enable=on,target=native -kernel"
+
+[build]
+# Build with warnings as errors by default.
+rustflags = ["-D", "warnings"]
+
+[env]
+# Ensure doc warnings are errors.
+RUSTDOCFLAGS = "-D warnings"
