@@ -268,4 +268,64 @@ mod tests {
         let inner = fp.into_inner();
         assert_eq!(inner.size().unwrap(), 256);
     }
+
+    #[test]
+    fn sync_fault_does_not_affect_write() {
+        let mut fp = FailpointIoBackend::new(TestBackend::new());
+        fp.set_fault(Fault::SyncFailure);
+        // Write should succeed — SyncFailure only triggers on sync()
+        let written = fp.write(0, &[1, 2, 3]).unwrap();
+        assert_eq!(written, 3);
+        // Sync should fail
+        assert_eq!(fp.sync(), Err(Error::Io));
+    }
+
+    #[test]
+    fn error_before_sync_fault() {
+        let mut fp = FailpointIoBackend::new(TestBackend::new());
+        fp.set_fault(Fault::ErrorBeforeSync);
+        // Write succeeds (data reaches storage)
+        let written = fp.write(0, &[4, 5, 6]).unwrap();
+        assert_eq!(written, 3);
+        // Sync fails
+        assert_eq!(fp.sync(), Err(Error::Io));
+    }
+
+    #[test]
+    fn size_delegates() {
+        let fp = FailpointIoBackend::new(TestBackend::new());
+        assert_eq!(fp.size().unwrap(), 256);
+    }
+
+    #[test]
+    fn sync_without_fault() {
+        let mut fp = FailpointIoBackend::new(TestBackend::new());
+        // No fault set — sync delegates to inner backend
+        assert!(fp.sync().is_ok());
+    }
+
+    #[test]
+    fn read_out_of_bounds() {
+        let fp = FailpointIoBackend::new(TestBackend::new());
+        let mut buf = [0u8; 4];
+        // Offset at end of backing store — TestBackend returns Ok(0)
+        let n = fp.read(256, &mut buf).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn write_out_of_bounds() {
+        let mut fp = FailpointIoBackend::new(TestBackend::new());
+        // Offset past backing store — TestBackend returns Err
+        assert_eq!(fp.write(256, &[1, 2]), Err(Error::Io));
+    }
+
+    #[test]
+    fn sync_with_write_fault_succeeds() {
+        let mut fp = FailpointIoBackend::new(TestBackend::new());
+        // Set a write-related fault — sync should still succeed
+        // (covers the `_ => {}` branch in sync, line 134).
+        fp.set_fault(Fault::ErrorBeforeWrite);
+        assert!(fp.sync().is_ok());
+    }
 }

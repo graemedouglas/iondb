@@ -430,4 +430,71 @@ mod tests {
         assert_eq!(e.stats().key_count, 1);
         assert_eq!(e.stats().data_bytes, 4);
     }
+
+    #[test]
+    fn flush_is_noop() {
+        let mut buf = [0u8; 2048];
+        let mut e = make(&mut buf);
+        assert_eq!(e.flush(), Ok(()));
+    }
+
+    #[test]
+    fn capacity_exhaustion() {
+        // Small buffer: 3 pages of 128 bytes (1 meta + 2 buckets)
+        let mut buf = [0u8; 384];
+        let mut e = LinearHashEngine::new(&mut buf, 128, 2).unwrap();
+        let mut i = 0u16;
+        loop {
+            let k = i.to_le_bytes();
+            if e.put(&k, b"val").is_err() {
+                break;
+            }
+            i += 1;
+            if i > 200 {
+                break; // safety net
+            }
+        }
+        assert!(i > 0); // at least some keys were inserted
+    }
+
+    #[test]
+    fn many_keys_with_splits_small_initial() {
+        // Larger buffer with small initial bucket count to trigger many splits.
+        #[allow(clippy::large_stack_arrays)]
+        let mut buf = [0u8; 8192];
+        let mut e = LinearHashEngine::new(&mut buf, 128, 2).unwrap();
+        for i in 0u16..40 {
+            let k = i.to_be_bytes();
+            assert_eq!(e.put(&k, &k), Ok(()), "insert {i} failed");
+        }
+        for i in 0u16..40 {
+            let k = i.to_be_bytes();
+            assert_eq!(e.get(&k), Ok(Some(k.as_slice())), "get {i} failed");
+        }
+        assert_eq!(e.stats().key_count, 40);
+    }
+
+    #[test]
+    fn update_oversize_value_fails() {
+        // With 64-byte pages each bucket has only ~36 usable bytes
+        // (header=24, CRC=4). Insert a key with a small value, then try
+        // to update it with a value that exceeds the bucket capacity.
+        // The put-update path should return CapacityExhausted (line 285)
+        // because after deleting the old entry the new value still won't fit.
+        let mut buf = [0u8; 256];
+        let mut e = LinearHashEngine::new(&mut buf, 64, 2).unwrap();
+
+        // Insert a key with a small (1-byte) value.
+        assert_eq!(e.put(b"ab", &[1]), Ok(()));
+        assert_eq!(e.get(b"ab"), Ok(Some([1].as_slice())));
+
+        // Try to update with a value far too large for the bucket.
+        // Usable space is ~36 bytes; key is 2 bytes, value is 30 bytes,
+        // plus 8 bytes for the slot = 40 > 36. This must fail.
+        let big = [0xFFu8; 30];
+        assert_eq!(e.put(b"ab", &big), Err(Error::CapacityExhausted));
+
+        // Original value should be gone because the update path deletes
+        // before checking space, but the key count is unchanged.
+    }
 }

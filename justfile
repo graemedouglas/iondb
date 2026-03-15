@@ -54,7 +54,7 @@ doc:
 # === Middle Loop (PR / CI) ===
 
 # Run the full CI verification stack
-ci: check build-nostd test-structural feature-matrix
+ci: check build-nostd test-structural feature-matrix coverage-check
 
 # Run feature matrix tests
 feature-matrix:
@@ -92,6 +92,29 @@ test-apps:
     cargo test -p sensor-log
     cargo test -p edge-config
     cargo test -p fleet-telemetry
+
+# === Coverage ===
+
+# Excluded from coverage: structural tests, dogfood apps (binary entry points)
+_cov_excludes := "--exclude iondb-structural-tests --exclude sensor-log --exclude edge-config --exclude fleet-telemetry"
+
+# Run tests with code coverage (summary)
+coverage:
+    cargo llvm-cov --workspace --all-features {{_cov_excludes}}
+
+# Run tests with code coverage, fail if below 97% line coverage
+# (~30 lines are fundamentally uncoverable: const fn, defensive guards, test safety breaks)
+coverage-check:
+    cargo llvm-cov --workspace --all-features {{_cov_excludes}} --fail-under-lines 97
+
+# Generate HTML coverage report
+coverage-html:
+    cargo llvm-cov --workspace --all-features {{_cov_excludes}} --html
+    @echo "Report: target/llvm-cov/html/index.html"
+
+# Generate lcov report (for CI upload)
+coverage-lcov:
+    cargo llvm-cov --workspace --all-features {{_cov_excludes}} --lcov --output-path lcov.info
 
 # === Maintenance ===
 

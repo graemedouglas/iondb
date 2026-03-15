@@ -211,4 +211,53 @@ mod tests {
         let counting = CountingAllocator::new(&mut inner);
         assert_eq!(counting.available(), Some(128));
     }
+
+    #[test]
+    fn test_reallocate_delegates() {
+        let mut inner = TestAllocator::new();
+        let mut counting = CountingAllocator::new(&mut inner);
+        let layout_small = Layout::from_size_align(16, 8).unwrap();
+        let layout_large = Layout::from_size_align(32, 8).unwrap();
+
+        let ptr = counting.allocate(layout_small).unwrap();
+        assert_eq!(counting.alloc_count(), 1);
+        assert_eq!(counting.dealloc_count(), 0);
+
+        let new_ptr = counting
+            .reallocate(ptr, layout_small, layout_large)
+            .unwrap();
+        assert!(!new_ptr.is_null());
+        // Reallocate counts as dealloc + alloc
+        assert_eq!(counting.alloc_count(), 2);
+        assert_eq!(counting.dealloc_count(), 1);
+        assert_eq!(counting.bytes_allocated(), 16 + 32);
+        assert_eq!(counting.bytes_deallocated(), 16);
+    }
+
+    #[test]
+    fn test_double_allocate_fails() {
+        let mut inner = TestAllocator::new();
+        let mut counting = CountingAllocator::new(&mut inner);
+        let layout = Layout::from_size_align(16, 8).unwrap();
+
+        let first = counting.allocate(layout);
+        assert!(first.is_ok());
+
+        let second = counting.allocate(layout);
+        assert!(matches!(second, Err(Error::AllocationFailed)));
+        // Only the first allocation should have been counted
+        assert_eq!(counting.alloc_count(), 1);
+    }
+
+    #[test]
+    fn test_available_after_allocate() {
+        let mut inner = TestAllocator::new();
+        let mut counting = CountingAllocator::new(&mut inner);
+        let layout = Layout::from_size_align(16, 8).unwrap();
+
+        assert_eq!(counting.available(), Some(128));
+
+        let _ptr = counting.allocate(layout).unwrap();
+        assert_eq!(counting.available(), Some(0));
+    }
 }
