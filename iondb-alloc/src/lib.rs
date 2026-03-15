@@ -21,13 +21,8 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+#[cfg(feature = "alloc-static")]
+pub mod static_pool;
+
 /// Re-export core dependency.
 pub use iondb_core;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_compiles() {
-        // Placeholder: allocator implementation tests will go here.
-    }
-}

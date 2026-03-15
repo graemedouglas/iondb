@@ -23,7 +23,12 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+pub mod crc;
+pub mod endian;
 pub mod error;
+pub mod page;
+#[cfg(test)]
+pub mod test_utils;
 pub mod traits;
 pub mod types;
 
