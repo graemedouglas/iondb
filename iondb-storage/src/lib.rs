@@ -20,5 +20,8 @@ extern crate std;
 #[cfg(feature = "storage-bptree")]
 pub mod bptree;
 
+#[cfg(any(feature = "storage-hash-ext", feature = "storage-hash-linear"))]
+pub mod hash;
+
 /// Re-export core dependency.
 pub use iondb_core;

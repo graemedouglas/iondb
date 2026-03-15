@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 iondb-core.workspace = true
+iondb-storage = { workspace = true, features = ["storage-hash-ext"] }
 
 [features]
 default = []
