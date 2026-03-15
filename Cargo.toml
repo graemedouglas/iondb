@@ -1,6 +1,47 @@
-[package]
-name = "iondb"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "2"
+members = [
+    "iondb-core",
+    "iondb-alloc",
+    "iondb-storage",
+    "iondb-io",
+    "iondb-wal",
+    "iondb-tx",
+    "iondb-buffer",
+    "iondb-query",
+    "iondb-facade",
+    "apps/sensor-log",
+    "apps/edge-config",
+    "apps/fleet-telemetry",
+    "tests/structural",
+]
 
-[dependencies]
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "BSD-3-Clause"
+repository = "https://github.com/graemedouglas/iondb"
+
+[workspace.dependencies]
+iondb-core = { path = "iondb-core" }
+iondb-alloc = { path = "iondb-alloc" }
+iondb-storage = { path = "iondb-storage" }
+iondb-io = { path = "iondb-io" }
+iondb-wal = { path = "iondb-wal" }
+iondb-tx = { path = "iondb-tx" }
+iondb-buffer = { path = "iondb-buffer" }
+iondb-query = { path = "iondb-query" }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unused_results = "warn"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+# Allow module naming flexibility
+module_name_repetitions = "allow"

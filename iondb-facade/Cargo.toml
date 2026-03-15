@@ -1,0 +1,93 @@
+[package]
+name = "iondb"
+description = "IonDB — an embedded database engine for the most constrained environments"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["profile-minimal"]
+
+# Convenience profiles
+profile-minimal = ["alloc-static", "storage-bptree", "io-mem"]
+profile-embedded = [
+    "alloc", "alloc-bump",
+    "storage-bptree", "storage-hash-ext", "storage-hash-linear",
+    "io-raw", "wal", "buffer-pool", "query",
+]
+profile-full = [
+    "std", "alloc", "alloc-static", "alloc-bump", "alloc-system",
+    "storage-bptree", "storage-hash-ext", "storage-hash-linear",
+    "io-mem", "io-file", "io-raw",
+    "acid", "wal", "concurrency", "buffer-pool",
+    "query", "query-alloc", "query-macro",
+    "savepoints", "serde-support", "async-io",
+    "defmt-logging", "log-logging",
+]
+
+# Tier flags
+std = [
+    "iondb-core/std", "iondb-alloc/std", "iondb-storage/std",
+    "iondb-io/std", "iondb-wal/std", "iondb-tx/std",
+    "iondb-buffer/std", "iondb-query/std",
+]
+alloc = [
+    "iondb-core/alloc", "iondb-alloc/alloc", "iondb-storage/alloc",
+    "iondb-io/alloc", "iondb-wal/alloc", "iondb-tx/alloc",
+    "iondb-buffer/alloc", "iondb-query/alloc",
+]
+
+# Allocators
+alloc-static = ["iondb-alloc/alloc-static"]
+alloc-bump = ["iondb-alloc/alloc-bump"]
+alloc-system = ["iondb-alloc/alloc-system"]
+
+# Storage engines
+storage-bptree = ["iondb-storage/storage-bptree"]
+storage-hash-ext = ["iondb-storage/storage-hash-ext"]
+storage-hash-linear = ["iondb-storage/storage-hash-linear"]
+
+# I/O backends
+io-mem = ["iondb-io/io-mem"]
+io-file = ["iondb-io/io-file"]
+io-raw = ["iondb-io/io-raw"]
+async-io = ["iondb-io/async-io"]
+
+# ACID & durability
+acid = ["wal", "buffer-pool", "iondb-tx/acid"]
+wal = []
+buffer-pool = ["iondb-buffer/buffer-pool"]
+
+# Concurrency
+concurrency = ["iondb-tx/concurrency"]
+
+# Query
+query = ["iondb-query/query"]
+query-alloc = ["iondb-query/query-alloc"]
+query-macro = ["iondb-query/query-macro"]
+
+# Transactions
+savepoints = ["iondb-tx/savepoints"]
+
+# Serialization
+serde-support = []
+
+# Logging
+defmt-logging = []
+log-logging = []
+
+# Test utilities (public for dogfood apps and integration tests)
+failpoint = ["iondb-io/failpoint"]
+
+[dependencies]
+iondb-core.workspace = true
+iondb-alloc.workspace = true
+iondb-storage.workspace = true
+iondb-io.workspace = true
+iondb-wal.workspace = true
+iondb-tx.workspace = true
+iondb-buffer.workspace = true
+iondb-query.workspace = true
+
+[lints]
+workspace = true

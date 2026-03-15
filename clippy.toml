@@ -1,0 +1,10 @@
+# Clippy configuration for IonDB.
+#
+# Custom lint rules with agent-oriented remediation messages.
+# See docs/requirements/harness/v0.md §3.2.
+
+# Maximum cognitive complexity for functions.
+cognitive-complexity-threshold = 25
+
+# Disallow large types on the stack.
+too-large-for-stack = 256

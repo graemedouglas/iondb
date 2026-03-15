@@ -1,0 +1,169 @@
+# IonDB CI Pipeline
+#
+# Runs the full verification stack on every PR and push to main.
+# See docs/requirements/harness/v0.md §4.2 for the complete CI specification.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  RUSTDOCFLAGS: "-D warnings"
+
+jobs:
+  # === Host-Native Quality Gates ===
+  host-native:
+    name: Host-Native (fmt, clippy, test, doc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (all targets, all features)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Doc check
+        run: cargo doc --workspace --no-deps
+
+  # === Structural Tests ===
+  structural:
+    name: Structural Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run structural tests
+        run: cargo test -p iondb-structural-tests
+
+  # === Feature Matrix ===
+  feature-matrix:
+    name: Feature Matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run feature matrix
+        run: ./scripts/feature-matrix.sh
+
+  # === no_std Compilation (Cortex-M0) ===
+  nostd-thumbv6m:
+    name: no_std (thumbv6m-none-eabi)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv6m-none-eabi
+
+      - name: Build iondb-core (no_std)
+        run: cargo build -p iondb-core --no-default-features --target thumbv6m-none-eabi
+
+      - name: Build iondb-alloc (no_std)
+        run: cargo build -p iondb-alloc --no-default-features --target thumbv6m-none-eabi
+
+      - name: Build iondb-storage (no_std)
+        run: cargo build -p iondb-storage --no-default-features --target thumbv6m-none-eabi
+
+      - name: Build iondb-wal (no_std)
+        run: cargo build -p iondb-wal --no-default-features --target thumbv6m-none-eabi
+
+      - name: Build iondb-buffer (no_std)
+        run: cargo build -p iondb-buffer --no-default-features --target thumbv6m-none-eabi
+
+  # === no_std Compilation (Cortex-M4F) ===
+  nostd-thumbv7em:
+    name: no_std (thumbv7em-none-eabihf)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+
+      - name: Build iondb-core (Cortex-M4F)
+        run: cargo build -p iondb-core --no-default-features --target thumbv7em-none-eabihf
+
+  # === no_std Compilation (RISC-V) ===
+  nostd-riscv:
+    name: no_std (riscv32imac)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv32imac-unknown-none-elf
+
+      - name: Build iondb-core (RISC-V)
+        run: cargo build -p iondb-core --no-default-features --target riscv32imac-unknown-none-elf
+
+  # === Miri (UB Detection) ===
+  miri:
+    name: Miri (UB detection)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+
+      - name: Miri test iondb-alloc
+        run: cargo +nightly miri test -p iondb-alloc
+
+  # === Dogfood Apps ===
+  dogfood:
+    name: Dogfood Apps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build sensor-log
+        run: cargo build -p sensor-log
+
+      - name: Build edge-config
+        run: cargo build -p edge-config
+
+      - name: Build fleet-telemetry
+        run: cargo build -p fleet-telemetry
+
+      - name: Test dogfood apps
+        run: |
+          cargo test -p sensor-log
+          cargo test -p edge-config
+          cargo test -p fleet-telemetry
+
+  # === Binary Size Budget ===
+  binary-size:
+    name: Binary Size Budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv6m-none-eabi
+
+      - name: Check binary size budget
+        run: ./scripts/check-binary-size.sh

@@ -1,0 +1,23 @@
+[package]
+name = "sensor-log"
+description = "Tier 1 dogfood app: bare-metal sensor logger on Cortex-M0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "sensor-log"
+path = "src/main.rs"
+
+[dependencies]
+iondb-core.workspace = true
+
+# Note: In a real no_std binary, this would depend on the iondb facade
+# with profile-minimal features. For now, it depends on iondb-core directly
+# to validate no_std compilation.
+
+[features]
+default = []
+
+[lints]
+workspace = true

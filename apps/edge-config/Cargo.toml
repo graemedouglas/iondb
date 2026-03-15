@@ -1,0 +1,19 @@
+[package]
+name = "edge-config"
+description = "Tier 2 dogfood app: transactional config store on ESP32-class targets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "edge-config"
+path = "src/main.rs"
+
+[dependencies]
+iondb-core.workspace = true
+
+[features]
+default = []
+
+[lints]
+workspace = true

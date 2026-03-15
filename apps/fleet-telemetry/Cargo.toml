@@ -1,0 +1,19 @@
+[package]
+name = "fleet-telemetry"
+description = "Tier 3 dogfood app: concurrent telemetry aggregator on embedded Linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "fleet-telemetry"
+path = "src/main.rs"
+
+[dependencies]
+iondb-core.workspace = true
+
+[features]
+default = []
+
+[lints]
+workspace = true
