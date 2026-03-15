@@ -151,6 +151,8 @@ name = "sensor-log"
 version = "0.1.0"
 dependencies = [
  "iondb-core",
+ "iondb-io",
+ "iondb-storage",
 ]
 
 [[package]]

@@ -17,13 +17,8 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+#[cfg(feature = "storage-bptree")]
+pub mod bptree;
+
 /// Re-export core dependency.
 pub use iondb_core;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_compiles() {
-        // Placeholder: storage engine tests will go here.
-    }
-}
