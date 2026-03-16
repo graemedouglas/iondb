@@ -368,28 +368,69 @@ fn proptest_repro_key_lost_after_split() {
 // points, eliminating slot/data area collision bugs.
 
 #[test]
-fn two_pages_mut_reversed_order() {
-    // Exercise the a > b path (line 77) in two_pages_mut.
-    // Insert enough keys to cause a split where the new page has a
-    // lower ID than the leaf being split... Actually, alloc_page always
-    // returns increasing IDs, so a < b always. The reverse path is hit
-    // indirectly when split_internal_and_insert creates pages.
-    // We trigger it by forcing many internal node splits.
-    #[allow(clippy::large_stack_arrays)]
-    let mut buf = [0u8; 65535];
-    let mut engine = BTreeEngine::new(&mut buf, 128).unwrap();
-    // Insert many keys to force multiple internal splits
-    for i in 0u16..100 {
-        let k = i.to_be_bytes();
-        let _ = engine.put(&k, &k);
+fn two_pages_mut_same_id() {
+    // Corrupted state: same page ID for both pages.
+    let mut buf = [0u8; 1024];
+    let mut e = make_engine(&mut buf);
+    assert_eq!(e.two_pages_mut(1, 1), Err(Error::PageError));
+}
+
+#[test]
+fn two_pages_mut_oob() {
+    // Corrupted state: page ID beyond buffer bounds.
+    let mut buf = [0u8; 1024];
+    let mut e = make_engine(&mut buf);
+    assert_eq!(e.two_pages_mut(1, 999), Err(Error::PageError));
+}
+
+#[test]
+fn two_pages_mut_reversed() {
+    // Exercise the a > b path directly (alloc_page never produces a > b).
+    let mut buf = [0u8; 1024];
+    let mut e = make_engine(&mut buf);
+    let (pa, pb) = e.two_pages_mut(3, 1).unwrap();
+    assert_eq!(pa.len(), 128); // page 3
+    assert_eq!(pb.len(), 128); // page 1
+}
+
+#[test]
+fn corrupted_tree_cycle_detection() {
+    // Corrupt tree to create a cycle: internal node child → itself.
+    // find_leaf should detect depth >= MAX_HEIGHT and return Corruption.
+    let mut buf = [0u8; 16384];
+    let mut e = BTreeEngine::new(&mut buf, 64).unwrap();
+    for i in 0u8..20 {
+        e.put(&[b'k', i / 10 + b'0', i % 10 + b'0'], &[i]).unwrap();
     }
-    // Verify all inserted keys
-    for i in 0u16..100 {
-        let k = i.to_be_bytes();
-        if engine.get(&k).unwrap().is_some() {
-            assert_eq!(engine.get(&k).unwrap(), Some(k.as_slice()));
-        }
+    let root = e.root_id().unwrap();
+    let pg = e.page(root).unwrap();
+    let child = node::internal_left_child(pg).unwrap();
+    // Corrupt child: change page type to Internal and point back to root
+    {
+        let p = e.page_mut(child).unwrap();
+        p[0] = iondb_core::page::PageType::BTreeInternal.as_byte();
+        endian::write_u16_le(&mut p[16..], 0).unwrap(); // count=0
+        endian::write_u32_le(&mut p[20..], root).unwrap(); // left_child=root
     }
+    assert_eq!(e.get(b"anything"), Err(Error::Corruption));
+}
+
+#[test]
+fn split_adjustment_left_heavy() {
+    // Force split point adjustment: large first entry makes naive midpoint
+    // overshoot left-half capacity (cum[mid] > cap).
+    let mut buf = [0u8; 4096];
+    let mut e = BTreeEngine::new(&mut buf, 64).unwrap();
+    // 3 small entries (cost 9 each = 27, fits in cap=32)
+    e.put(&[0x01], &[]).unwrap();
+    e.put(&[0x02], &[]).unwrap();
+    e.put(&[0x03], &[]).unwrap();
+    // Insert before all with large value (cost 24), triggers split.
+    // Naive mid=2 gives cum[2]=33 > cap=32, so mid adjusts to 1.
+    e.put(&[0x00], &[0xAA; 15]).unwrap();
+    assert_eq!(e.get(&[0x00]), Ok(Some([0xAA; 15].as_slice())));
+    assert_eq!(e.get(&[0x01]), Ok(Some([].as_slice())));
+    assert_eq!(e.get(&[0x03]), Ok(Some([].as_slice())));
 }
 
 #[test]

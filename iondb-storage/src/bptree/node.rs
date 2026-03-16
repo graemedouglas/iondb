@@ -347,3 +347,28 @@ pub fn internal_insert(page: &mut [u8], key: &[u8], right_child: PageId) -> Resu
     internal_set_count(page, n + 1)?;
     internal_set_data_end(page, new_de)
 }
+
+#[cfg(test)]
+// Tests use unwrap for brevity; panics are acceptable in test code.
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn leaf_insert_tiny_page_errors() {
+        // Page too small for slot area — write_kv_slot fails, exercising
+        // the error propagation path in leaf_insert_at.
+        let mut page = [0u8; 30]; // LEAF_HDR(28) + 2 bytes, not enough for slot
+        leaf_init(&mut page, 0).unwrap();
+        assert!(leaf_insert_at(&mut page, 0, &[1], &[]).is_err());
+    }
+
+    #[test]
+    fn internal_insert_tiny_page_errors() {
+        // Page too small for slot area — write_key_slot fails, exercising
+        // the error propagation path in internal_insert.
+        let mut page = [0u8; 26]; // INTL_HDR(24) + 2 bytes, not enough for slot
+        internal_init(&mut page, 0, 1).unwrap();
+        assert!(internal_insert(&mut page, &[1], 2).is_err());
+    }
+}

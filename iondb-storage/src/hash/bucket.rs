@@ -180,3 +180,19 @@ pub fn bucket_entry_size(page: &[u8], i: usize) -> Result<usize> {
     let s = read_slot(page, slot_base(i))?;
     Ok(s.key_len + s.val_len)
 }
+
+#[cfg(test)]
+// Tests use unwrap for brevity; panics are acceptable in test code.
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bucket_insert_tiny_page_errors() {
+        // Page too small for slot area — write_slot fails, exercising
+        // the error propagation path in bucket_insert_at.
+        let mut page = [0u8; 26]; // BUCKET_HDR(24) + 2 bytes
+        bucket_init(&mut page, 0, 0).unwrap();
+        assert!(bucket_insert_at(&mut page, 0, &[1], &[]).is_err());
+    }
+}

@@ -199,10 +199,8 @@ impl<'a> LinearHashEngine<'a> {
         if (new_id as usize + 1) * self.page_size > self.buf.len() {
             return Ok(()); // no room, skip split
         }
-        let pc = self.page_count()?;
-        if new_id >= pc {
-            self.set_meta_u32(META_PAGE_COUNT, new_id + 1)?;
-        }
+        // new_id always equals page_count (buckets are allocated sequentially).
+        self.set_meta_u32(META_PAGE_COUNT, new_id + 1)?;
         self.set_meta_u32(META_BUCKET_COUNT, bc + 1)?;
 
         let new_page = self.page_mut(new_id)?;
