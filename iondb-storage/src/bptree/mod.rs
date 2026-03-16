@@ -1,14 +1,6 @@
 //! Page-based B+ tree storage engine.
 //!
-//! Stores key-value pairs in a caller-provided flat buffer divided into
-//! fixed-size pages. Supports splitting, range scans via leaf sibling pointers,
-//! and configurable page sizes (powers of 2, minimum 64 bytes).
-//!
-//! # Buffer layout
-//!
-//! ```text
-//! [Page 0: Metadata] [Page 1+: tree nodes (leaf / internal)]
-//! ```
+//! Buffer layout: `[Page 0: Metadata] [Page 1+: tree nodes (leaf / internal)]`
 // Engine methods have uniform error conditions (page bounds / capacity / corruption).
 #![allow(clippy::missing_errors_doc)]
 
@@ -32,21 +24,15 @@ const MAX_HEIGHT: usize = 16;
 /// Maximum buffer size (u16 offsets inside pages).
 const MAX_BUF: usize = u16::MAX as usize;
 
-/// A page-based B+ tree storage engine.
-///
-/// Operates on a caller-provided `&mut [u8]` buffer divided into fixed-size
-/// pages. `no_std` compatible, zero heap allocation.
+/// Page-based B+ tree engine on a caller-provided `&mut [u8]` buffer.
 pub struct BTreeEngine<'a> {
     buf: &'a mut [u8],
     page_size: usize,
 }
 
 impl<'a> BTreeEngine<'a> {
-    /// Create a new B+ tree engine.
-    ///
-    /// `page_size` must be a power of 2, at least [`MIN_PAGE_SIZE`] (64),
-    /// and the buffer must hold at least 2 pages. Returns `None` on
-    /// invalid parameters.
+    /// Create a new B+ tree engine. `page_size` must be a power of 2 >= 64.
+    /// Buffer must hold at least 2 pages. Returns `None` on invalid params.
     pub fn new(buf: &'a mut [u8], page_size: usize) -> Option<Self> {
         if page_size < MIN_PAGE_SIZE
             || !page_size.is_power_of_two()
@@ -194,38 +180,53 @@ impl<'a> BTreeEngine<'a> {
         key: &[u8],
         value: &[u8],
     ) -> Result<(PageId, PageId)> {
+        // Collect all entries (existing + new) in sorted order, then rebuild.
+        let lp = self.page(leaf_id)?;
+        let n = node::leaf_count(lp)?;
+        let mut keys: [[u8; 256]; 32] = [[0u8; 256]; 32];
+        let mut vals: [[u8; 256]; 32] = [[0u8; 256]; 32];
+        let mut kl = [0usize; 32];
+        let mut vl = [0usize; 32];
+        let (mut total, mut ins) = (0usize, false);
+        for i in 0..n {
+            let (ek, ev) = (node::leaf_key_at(lp, i)?, node::leaf_value_at(lp, i)?);
+            if !ins && key < ek {
+                kl[total] = key.len();
+                vl[total] = value.len();
+                keys[total][..key.len()].copy_from_slice(key);
+                vals[total][..value.len()].copy_from_slice(value);
+                total += 1;
+                ins = true;
+            }
+            kl[total] = ek.len();
+            vl[total] = ev.len();
+            keys[total][..ek.len()].copy_from_slice(ek);
+            vals[total][..ev.len()].copy_from_slice(ev);
+            total += 1;
+        }
+        if !ins {
+            kl[total] = key.len();
+            vl[total] = value.len();
+            keys[total][..key.len()].copy_from_slice(key);
+            vals[total][..value.len()].copy_from_slice(value);
+            total += 1;
+        }
+        let mid = total / 2;
         let new_id = self.alloc_page()?;
         let (left, right) = self.two_pages_mut(leaf_id, new_id)?;
-        node::leaf_init(right, new_id)?;
-        let n = node::leaf_count(left)?;
-        let mid = n / 2;
-        // Copy upper half to right page
-        for i in mid..n {
-            let k = node::leaf_key_at(left, i)?;
-            let v = node::leaf_value_at(left, i)?;
-            let pos = i - mid;
-            node::leaf_insert_at(right, pos, k, v)?;
-        }
-        node::leaf_set_count(left, mid)?;
-        // Fix sibling pointers
-        let old_next = node::leaf_next(left)?;
+        let (old_next, old_prev) = (node::leaf_next(left)?, node::leaf_prev(left)?);
+        node::leaf_init(left, leaf_id)?;
+        node::leaf_set_prev(left, old_prev)?;
         node::leaf_set_next(left, new_id)?;
+        node::leaf_init(right, new_id)?;
         node::leaf_set_prev(right, leaf_id)?;
         node::leaf_set_next(right, old_next)?;
-        // Insert the new key-value into the correct page
-        let first_right_key = node::leaf_key_at(right, 0)?;
-        if key < first_right_key {
-            let pos = match node::leaf_search(left, key)? {
-                Ok(i) | Err(i) => i,
-            };
-            node::leaf_insert_at(left, pos, key, value)?;
-        } else {
-            let pos = match node::leaf_search(right, key)? {
-                Ok(i) | Err(i) => i,
-            };
-            node::leaf_insert_at(right, pos, key, value)?;
+        for i in 0..mid {
+            node::leaf_insert_at(left, i, &keys[i][..kl[i]], &vals[i][..vl[i]])?;
         }
-        // old-next prev pointer fixed after two_pages_mut borrow is dropped.
+        for i in mid..total {
+            node::leaf_insert_at(right, i - mid, &keys[i][..kl[i]], &vals[i][..vl[i]])?;
+        }
         Ok((leaf_id, new_id))
     }
 
@@ -331,7 +332,6 @@ impl<'a> BTreeEngine<'a> {
             node::internal_insert(left, &keys[i][..key_lens[i]], children[i + 1])?;
         }
 
-        // Build right node with entries [mid+1..total], left_child = children[mid+1]
         node::internal_init(right_pg, new_id, children[mid + 1])?;
         for i in (mid + 1)..total {
             node::internal_insert(right_pg, &keys[i][..key_lens[i]], children[i + 1])?;

@@ -325,8 +325,45 @@ fn update_forces_leaf_split() {
     assert_eq!(e.stats().key_count, 6);
 }
 
-// NOTE: Reverse-order insert test omitted. A known issue exists where
-// `split_leaf_and_insert` does not recalculate `data_end` on the left page
-// after moving entries to the right page, causing orphaned data to waste
-// space. This leads to premature CapacityExhausted with reverse-order
-// inserts. Tracked for fix in a future PR (leaf compaction on split).
+#[test]
+fn proptest_repro_key_lost_after_split() {
+    // Regression: random key sequence that previously caused data corruption
+    // in split_leaf_and_insert (slot/data area overlap).
+    #[allow(clippy::large_stack_arrays)]
+    let mut buf = [0u8; 65535];
+    let mut e = BTreeEngine::new(&mut buf, 128).unwrap();
+    let ops: &[(&[u8], &[u8])] = &[
+        (b"\x00", b""),
+        (b"\x00", b""),
+        (b"\xc7", b""),
+        (&[199, 0, 0, 0, 0, 0], &[0, 0, 0]),
+        (
+            &[0, 0, 0, 0, 0, 117, 199, 248, 120, 214, 78],
+            &[52, 206, 159, 4, 76, 211, 251, 103],
+        ),
+        (
+            &[
+                190, 67, 32, 11, 91, 112, 126, 17, 115, 149, 36, 41, 217, 229, 13,
+            ],
+            &[116, 12, 215, 23, 117, 78, 104, 234, 219, 131, 217],
+        ),
+        (
+            &[
+                195, 103, 229, 220, 162, 119, 55, 134, 188, 8, 9, 238, 149, 145, 244,
+            ],
+            &[
+                103, 244, 239, 79, 142, 38, 14, 223, 54, 107, 4, 179, 118, 253, 10,
+            ],
+        ),
+    ];
+    for (k, v) in ops {
+        assert_eq!(e.put(k, v), Ok(()), "put({k:?}) failed");
+    }
+    for (k, _) in ops {
+        assert!(e.get(k).unwrap().is_some(), "key {k:?} lost");
+    }
+}
+
+// NOTE: The split_leaf_and_insert function was rewritten to collect all
+// entries into a sorted buffer and redistribute across both pages,
+// eliminating the old data corruption / orphaned-data bugs.
