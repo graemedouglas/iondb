@@ -191,7 +191,7 @@ fn directory_exhaustion() {
     // spare bucket pages but the directory page itself is the bottleneck.
     // Stack array is large but bounded.
     #[allow(clippy::large_stack_arrays)]
-    let mut buf = [0u8; 512];
+    let mut buf = [0u8; 4096];
     let mut e = ExtendibleHashEngine::new(&mut buf, 64).unwrap();
 
     let mut hit_capacity = false;

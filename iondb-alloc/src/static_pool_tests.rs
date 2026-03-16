@@ -262,3 +262,22 @@ fn write_and_read_back() {
         }
     }
 }
+
+#[test]
+fn new_borderline_sizes() {
+    // Exercise the validation paths in new() with various edge-case sizes.
+    // The exact path hit depends on runtime buffer alignment, so we sweep
+    // a range of sizes and just verify we don't panic.
+    for size in 5..20 {
+        let mut buf = [0u8; 64];
+        let _ = StaticPoolAllocator::new(&mut buf[..size], 8);
+    }
+    for size in 9..35 {
+        let mut buf = [0u8; 64];
+        let _ = StaticPoolAllocator::new(&mut buf[..size], 16);
+    }
+    for size in 17..70 {
+        let mut buf = [0u8; 128];
+        let _ = StaticPoolAllocator::new(&mut buf[..size], 32);
+    }
+}

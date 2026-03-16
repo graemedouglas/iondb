@@ -18,21 +18,17 @@ const META_PAGE_COUNT: usize = META_ROOT + 4; // u32
 const META_KEY_COUNT: usize = META_PAGE_COUNT + 4; // u64
 const META_DATA_BYTES: usize = META_KEY_COUNT + 8; // u64
 
-/// Maximum tree height (stack depth for traversal).
 const MAX_HEIGHT: usize = 16;
-
-/// Maximum buffer size (u16 offsets inside pages).
 const MAX_BUF: usize = u16::MAX as usize;
 
-/// Page-based B+ tree engine on a caller-provided `&mut [u8]` buffer.
+/// Page-based B+ tree engine on a caller-provided buffer.
 pub struct BTreeEngine<'a> {
     buf: &'a mut [u8],
     page_size: usize,
 }
 
 impl<'a> BTreeEngine<'a> {
-    /// Create a new B+ tree engine. `page_size` must be a power of 2 >= 64.
-    /// Buffer must hold at least 2 pages. Returns `None` on invalid params.
+    /// Create a new engine. `page_size`: power of 2 ≥ 64; buffer ≥ 2 pages.
     pub fn new(buf: &'a mut [u8], page_size: usize) -> Option<Self> {
         if page_size < MIN_PAGE_SIZE
             || !page_size.is_power_of_two()
@@ -61,7 +57,6 @@ impl<'a> BTreeEngine<'a> {
         self.buf.get_mut(off..off + ps).ok_or(Error::PageError)
     }
 
-    /// Borrow two distinct pages mutably at the same time.
     fn two_pages_mut(&mut self, a: PageId, b: PageId) -> Result<(&mut [u8], &mut [u8])> {
         if a == b {
             return Err(Error::PageError);
@@ -154,7 +149,6 @@ impl<'a> BTreeEngine<'a> {
         Ok(pc)
     }
 
-    /// Walk from root to the leaf containing `key`. Returns `(leaf_id, parent_stack, depth)`.
     fn find_leaf(&self, key: &[u8]) -> Result<(PageId, [PageId; MAX_HEIGHT], usize)> {
         let mut stack = [NO_PAGE; MAX_HEIGHT];
         let mut depth = 0usize;
@@ -174,19 +168,18 @@ impl<'a> BTreeEngine<'a> {
         }
     }
 
+    // Split leaf, inserting new key-value; capacity-aware split point.
     fn split_leaf_and_insert(
         &mut self,
         leaf_id: PageId,
         key: &[u8],
         value: &[u8],
     ) -> Result<(PageId, PageId)> {
-        // Collect all entries (existing + new) in sorted order, then rebuild.
         let lp = self.page(leaf_id)?;
         let n = node::leaf_count(lp)?;
-        let mut keys: [[u8; 256]; 32] = [[0u8; 256]; 32];
-        let mut vals: [[u8; 256]; 32] = [[0u8; 256]; 32];
-        let mut kl = [0usize; 32];
-        let mut vl = [0usize; 32];
+        let mut keys = [[0u8; 256]; 32];
+        let mut vals = [[0u8; 256]; 32];
+        let (mut kl, mut vl) = ([0usize; 32], [0usize; 32]);
         let (mut total, mut ins) = (0usize, false);
         for i in 0..n {
             let (ek, ev) = (node::leaf_key_at(lp, i)?, node::leaf_value_at(lp, i)?);
@@ -211,7 +204,26 @@ impl<'a> BTreeEngine<'a> {
             vals[total][..value.len()].copy_from_slice(value);
             total += 1;
         }
-        let mid = total / 2;
+        // Pick split point where both halves fit (slot + data per entry).
+        let cap = self.page_size - node::LEAF_HDR - iondb_core::page::PAGE_CHECKSUM_SIZE;
+        let mut cum = [0usize; 33];
+        for i in 0..total {
+            cum[i + 1] = cum[i] + node::LEAF_SLOT + kl[i] + vl[i];
+        }
+        let tc = cum[total];
+        let mut mid = total / 2;
+        if mid == 0 {
+            mid = 1;
+        }
+        while mid > 1 && cum[mid] > cap {
+            mid -= 1;
+        }
+        while mid < total && (tc - cum[mid]) > cap {
+            mid += 1;
+        }
+        if mid >= total {
+            mid = total - 1;
+        }
         let new_id = self.alloc_page()?;
         let (left, right) = self.two_pages_mut(leaf_id, new_id)?;
         let (old_next, old_prev) = (node::leaf_next(left)?, node::leaf_prev(left)?);
@@ -238,7 +250,6 @@ impl<'a> BTreeEngine<'a> {
         Ok(())
     }
 
-    /// Propagate a split upward through internal nodes.
     fn propagate_split(
         &mut self,
         stack: &[PageId; MAX_HEIGHT],
@@ -268,7 +279,6 @@ impl<'a> BTreeEngine<'a> {
             sep_len = promoted.1;
             right_child = new_id;
         }
-        // Reached the root — create a new root
         let new_root = self.alloc_page()?;
         let old_root = self.root_id()?;
         let p = self.page_mut(new_root)?;
@@ -277,7 +287,6 @@ impl<'a> BTreeEngine<'a> {
         self.set_root_id(new_root)
     }
 
-    /// Split an internal node and insert (key, `right_child`). Returns promoted key.
     fn split_internal_and_insert(
         &mut self,
         node_id: PageId,
@@ -285,19 +294,13 @@ impl<'a> BTreeEngine<'a> {
         key: &[u8],
         right_child: PageId,
     ) -> Result<([u8; 256], usize)> {
-        // First insert into the node (temporarily overfull handled by new page)
         let pg = self.page_mut(node_id)?;
-        // We need to collect all entries, add the new one, then redistribute
         let n = node::internal_count(pg)?;
-
-        // Collect all entries + the new one into a temp array
-        let mut keys: [[u8; 256]; 32] = [[0u8; 256]; 32];
+        let mut keys = [[0u8; 256]; 32];
         let mut key_lens = [0usize; 32];
         let mut children = [NO_PAGE; 33];
         children[0] = node::internal_left_child(pg)?;
-
-        let mut total = 0usize;
-        let mut inserted = false;
+        let (mut total, mut inserted) = (0usize, false);
         for i in 0..n {
             let ek = node::internal_key_at(pg, i)?;
             if !inserted && key < ek {
@@ -319,13 +322,10 @@ impl<'a> BTreeEngine<'a> {
             children[total + 1] = right_child;
             total += 1;
         }
-
         let mid = total / 2;
         let promoted_len = key_lens[mid];
         let mut promoted = [0u8; 256];
         promoted[..promoted_len].copy_from_slice(&keys[mid][..promoted_len]);
-
-        // Rebuild left node with entries [0..mid]
         let (left, right_pg) = self.two_pages_mut(node_id, new_id)?;
         node::internal_init(left, node_id, children[0])?;
         for i in 0..mid {
@@ -340,7 +340,7 @@ impl<'a> BTreeEngine<'a> {
         Ok((promoted, promoted_len))
     }
 
-    /// Scan key-value pairs in `[start, end)`. Calls `f` for each; stop if it returns `false`.
+    /// Scan key-value pairs in `[start, end)`. Stops if `f` returns false.
     pub fn range<F>(&self, start: &[u8], end: &[u8], mut f: F) -> Result<()>
     where
         F: FnMut(&[u8], &[u8]) -> bool,
