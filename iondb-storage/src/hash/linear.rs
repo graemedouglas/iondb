@@ -448,9 +448,6 @@ mod tests {
                 break;
             }
             i += 1;
-            if i > 200 {
-                break; // safety net
-            }
         }
         assert!(i > 0); // at least some keys were inserted
     }

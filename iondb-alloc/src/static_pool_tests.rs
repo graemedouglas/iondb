@@ -281,3 +281,18 @@ fn new_borderline_sizes() {
         let _ = StaticPoolAllocator::new(&mut buf[..size], 32);
     }
 }
+
+#[test]
+fn bitmap_overflow_alignment_edge_case() {
+    // The bitmap_needed > pool_offset guard (line 83) triggers when alignment
+    // makes pool_offset small enough that the recalculated block_count needs
+    // more bitmap bytes than pool_offset can hold. This depends on the buffer's
+    // memory address. Sweep all alignments via sub-slices to guarantee coverage.
+    let mut big = [0u8; 256];
+    for start in 0..8 {
+        let sub = &mut big[start..start + 73];
+        // With block_size=8, orig_bc=8, bitmap_bytes=1. If (buf_addr + 1) is
+        // aligned to 8, pool_offset=1, recalc_bc=9, bitmap_needed=2 > 1.
+        let _ = StaticPoolAllocator::new(sub, 8);
+    }
+}

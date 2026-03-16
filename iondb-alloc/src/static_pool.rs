@@ -83,12 +83,6 @@ impl<'a> StaticPoolAllocator<'a> {
             return None;
         }
 
-        // Verify it fits
-        let total_needed = pool_offset + block_count * block_size;
-        if total_needed > buf.len() {
-            return None;
-        }
-
         // Zero the bitmap (all blocks free)
         for b in &mut buf[..bitmap_bytes] {
             *b = 0;
