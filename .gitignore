@@ -21,6 +21,9 @@ target
 #.idea/
 
 
+# Coverage artifacts
+lcov.info
+
 # Added by cargo
 
 /target

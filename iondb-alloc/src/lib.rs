@@ -24,5 +24,8 @@ extern crate std;
 #[cfg(feature = "alloc-static")]
 pub mod static_pool;
 
+#[cfg(feature = "alloc-bump")]
+pub mod bump;
+
 /// Re-export core dependency.
 pub use iondb_core;

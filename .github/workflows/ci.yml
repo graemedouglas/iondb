@@ -154,6 +154,36 @@ jobs:
           cargo test -p edge-config
           cargo test -p fleet-telemetry
 
+  # === Code Coverage (97% line) ===
+  coverage:
+    name: Coverage (97% line)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Run coverage (fail under 97%)
+        run: >
+          cargo llvm-cov --workspace --all-features
+          --exclude iondb-structural-tests
+          --exclude sensor-log
+          --exclude edge-config
+          --exclude fleet-telemetry
+          --fail-under-lines 97
+          --lcov --output-path lcov.info
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: lcov.info
+
   # === Binary Size Budget ===
   binary-size:
     name: Binary Size Budget

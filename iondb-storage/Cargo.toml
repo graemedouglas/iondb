@@ -16,5 +16,13 @@ storage-hash-linear = []
 [dependencies]
 iondb-core.workspace = true
 
+[dev-dependencies]
+proptest = "1.10"
+criterion = { version = "0.5", default-features = false }
+
+[[bench]]
+name = "storage_benchmarks"
+harness = false
+
 [lints]
 workspace = true
