@@ -162,9 +162,6 @@ fn capacity_exhaustion() {
             break;
         }
         i += 1;
-        if i > 200 {
-            break; // safety net
-        }
     }
     assert!(i > 0); // at least some inserts succeeded
 }
@@ -249,14 +246,7 @@ fn range_single_leaf() {
 
 #[test]
 fn internal_node_split_large() {
-    // 64-byte pages with a large buffer, inserting 120 keys in big-endian order
-    // to force a deep tree (3+ levels) with internal node splits.
-    // Covers: propagate_split → split_internal_and_insert (line 265),
-    //         insertion loop where !inserted && key < ek (lines 303-307),
-    //         internal_set_left_child (lines 251-253),
-    //         write_key_slot in internal_insert (line 346),
-    //         leaf_prev via sibling chain verification (lines 84-86).
-    // Large stack array needed to have enough pages for a 3-level tree.
+    // 120 keys with 64-byte pages forces 3+ level tree with internal splits.
     #[allow(clippy::large_stack_arrays)]
     let mut buf = [0u8; 65536];
     let mut e = BTreeEngine::new(&mut buf, 64).unwrap();
@@ -272,7 +262,6 @@ fn internal_node_split_large() {
     }
     assert_eq!(e.stats().key_count, u64::from(count));
 
-    // Verify leaf chain via range scan covers all keys and leaf_prev is set
     let mut collected = alloc::vec::Vec::new();
     e.range(&0u16.to_be_bytes(), &count.to_be_bytes(), |k, _v| {
         collected.push(k.to_vec());
@@ -280,31 +269,24 @@ fn internal_node_split_large() {
     })
     .unwrap();
     assert_eq!(collected.len(), count as usize);
-    // Keys should be in sorted order
     for w in collected.windows(2) {
         assert!(w[0] < w[1], "keys not sorted: {:?} >= {:?}", w[0], w[1]);
     }
 
-    // Walk the leaf chain and verify leaf_prev pointers (covers node.rs lines 84-86).
-    // Find the first leaf by looking up key 0.
     let (first_leaf, _, _) = e.find_leaf(&0u16.to_be_bytes()).unwrap();
-    let mut cur = first_leaf;
-    let mut leaf_count = 1usize;
-    // Walk forward to the last leaf
+    let (mut cur, mut leaf_count) = (first_leaf, 1usize);
     loop {
         let pg = e.page(cur).unwrap();
         let next = node::leaf_next(pg).unwrap();
         if next == node::NO_PAGE {
             break;
         }
-        // Verify backward pointer of next leaf points to current
         let next_pg = e.page(next).unwrap();
         assert_eq!(node::leaf_prev(next_pg).unwrap(), cur);
         cur = next;
         leaf_count += 1;
     }
     assert!(leaf_count > 1, "expected multiple leaves");
-    // First leaf should have prev == NO_PAGE
     let first_pg = e.page(first_leaf).unwrap();
     assert_eq!(node::leaf_prev(first_pg).unwrap(), node::NO_PAGE);
 }
@@ -363,9 +345,6 @@ fn proptest_repro_key_lost_after_split() {
         assert!(e.get(k).unwrap().is_some(), "key {k:?} lost");
     }
 }
-
-// The split_leaf_and_insert was rewritten with capacity-aware split
-// points, eliminating slot/data area collision bugs.
 
 #[test]
 fn two_pages_mut_same_id() {
@@ -495,4 +474,22 @@ fn internal_set_left_child_round_trip() {
     assert_eq!(node::internal_left_child(&page).unwrap(), 42);
     node::internal_set_left_child(&mut page, 99).unwrap();
     assert_eq!(node::internal_left_child(&page).unwrap(), 99);
+}
+
+#[test]
+fn corrupted_internal_split_propagation() {
+    // Corrupt internal node key slot so split_internal_and_insert fails
+    // via propagate_split (mod.rs line 277 ? error path).
+    #[allow(clippy::large_stack_arrays)]
+    let mut buf = [0u8; 65536];
+    let mut e = BTreeEngine::new(&mut buf, 64).unwrap();
+    for i in 0u16..50 { e.put(&i.to_be_bytes(), &i.to_be_bytes()).unwrap(); }
+    let search = 200u16.to_be_bytes();
+    let (_leaf_id, stack, depth) = e.find_leaf(&search).unwrap();
+    let parent_id = stack[depth - 1];
+    // Corrupt first key's offset and shrink data_end so has_space is false.
+    let p = e.page_mut(parent_id).unwrap();
+    endian::write_u16_le(&mut p[node::INTL_HDR + 4..], 0xFFFF).unwrap();
+    endian::write_u16_le(&mut p[18..], node::INTL_HDR as u16).unwrap();
+    assert!(e.put(&search, &[0xBB; 30]).is_err());
 }

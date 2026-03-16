@@ -103,9 +103,6 @@ fn capacity_exhaustion() {
             break;
         }
         i += 1;
-        if i > 200 {
-            break; // safety net
-        }
     }
     assert!(i > 0); // at least one key was inserted
 }
@@ -210,4 +207,17 @@ fn directory_exhaustion() {
         hit_capacity,
         "should hit CapacityExhausted from directory exhaustion"
     );
+}
+
+#[test]
+fn oversized_entry_after_split() {
+    // After a bucket split, inserting a key+value too large for any single
+    // bucket returns CapacityExhausted (extendible.rs line 338).
+    #[allow(clippy::large_stack_arrays)]
+    let mut buf = [0u8; 4096];
+    let mut e = ExtendibleHashEngine::new(&mut buf, 64).unwrap();
+    // Fill buckets with small entries to trigger splits.
+    for i in 0u8..8 { let _ = e.put(&[i], &[i]); }
+    // Try a value larger than a single empty bucket can hold (28 bytes max).
+    assert_eq!(e.put(&[0xFF], &[0xAA; 28]), Err(Error::CapacityExhausted));
 }
