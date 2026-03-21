@@ -77,7 +77,7 @@ fn bucket_set_count(page: &mut [u8], c: usize) -> Result<()> {
     endian::write_u16_le(&mut page[16..], to_u16(c))
 }
 
-fn bucket_data_end(page: &[u8]) -> Result<usize> {
+pub fn bucket_data_end(page: &[u8]) -> Result<usize> {
     Ok(usize::from(endian::read_u16_le(&page[18..])?))
 }
 
