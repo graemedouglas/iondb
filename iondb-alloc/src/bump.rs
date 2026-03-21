@@ -186,9 +186,6 @@ mod tests {
         let mut count = 0;
         while bump.allocate(layout).is_ok() {
             count += 1;
-            if count > 100 {
-                break; // safety
-            }
         }
         assert!(count > 0);
         assert!(count <= 4); // 64 bytes / 16 bytes per alloc

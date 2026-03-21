@@ -17,7 +17,7 @@ use super::bucket;
 use super::hash_key;
 use iondb_core::endian;
 use iondb_core::error::{Error, Result};
-use iondb_core::page::{PageHeader, PageType, PAGE_HEADER_SIZE};
+use iondb_core::page::{PageHeader, PageType, PAGE_CHECKSUM_SIZE, PAGE_HEADER_SIZE};
 use iondb_core::traits::storage_engine::{EngineStats, StorageEngine};
 use iondb_core::types::{PageId, MIN_PAGE_SIZE};
 
@@ -199,58 +199,61 @@ impl<'a> LinearHashEngine<'a> {
         if (new_id as usize + 1) * self.page_size > self.buf.len() {
             return Ok(()); // no room, skip split
         }
-        let pc = self.page_count()?;
-        if new_id >= pc {
-            self.set_meta_u32(META_PAGE_COUNT, new_id + 1)?;
-        }
+        // new_id always equals page_count (buckets are allocated sequentially).
+        self.set_meta_u32(META_PAGE_COUNT, new_id + 1)?;
         self.set_meta_u32(META_BUCKET_COUNT, bc + 1)?;
 
         let new_page = self.page_mut(new_id)?;
         bucket::bucket_init(new_page, new_id, 0)?;
 
-        // Advance split pointer
+        // Redistribute entries from old bucket BEFORE advancing the split
+        // pointer. Using the next hash level (nl << 1) maps each entry to
+        // either the old bucket (index p) or the new bucket (index nl + p).
+        // If we advanced the pointer first, bucket_for_key could route keys
+        // to buckets that haven't been allocated yet.
         let nl = n << l;
+        let rehash_mod = nl << 1;
+
+        let count = bucket::bucket_count(self.page(old_id)?)?;
+        if count > 0 {
+            let mut keys: [[u8; 256]; 32] = [[0u8; 256]; 32];
+            let mut vals: [[u8; 256]; 32] = [[0u8; 256]; 32];
+            let mut klens = [0usize; 32];
+            let mut vlens = [0usize; 32];
+
+            let bp = self.page(old_id)?;
+            for i in 0..count {
+                let k = bucket::bucket_key_at(bp, i)?;
+                let v = bucket::bucket_value_at(bp, i)?;
+                klens[i] = k.len();
+                vlens[i] = v.len();
+                keys[i][..k.len()].copy_from_slice(k);
+                vals[i][..v.len()].copy_from_slice(v);
+            }
+
+            // Reinit old bucket
+            let old_page = self.page_mut(old_id)?;
+            bucket::bucket_init(old_page, old_id, 0)?;
+
+            // Re-insert each entry using the next hash level directly
+            for i in 0..count {
+                let h = hash_key(&keys[i][..klens[i]]);
+                let target = 1 + (h % rehash_mod);
+                let tp = self.page(target)?;
+                let pos = match bucket::bucket_search(tp, &keys[i][..klens[i]])? {
+                    Ok(j) | Err(j) => j,
+                };
+                let tm = self.page_mut(target)?;
+                bucket::bucket_insert_at(tm, pos, &keys[i][..klens[i]], &vals[i][..vlens[i]])?;
+            }
+        }
+
+        // Advance split pointer after redistribution is complete
         if p + 1 >= nl {
             self.set_meta_u16(META_LEVEL, l + 1)?;
             self.set_meta_u32(META_SPLIT_PTR, 0)?;
         } else {
             self.set_meta_u32(META_SPLIT_PTR, p + 1)?;
-        }
-
-        // Redistribute entries from old bucket
-        let count = bucket::bucket_count(self.page(old_id)?)?;
-        if count == 0 {
-            return Ok(());
-        }
-
-        let mut keys: [[u8; 256]; 32] = [[0u8; 256]; 32];
-        let mut vals: [[u8; 256]; 32] = [[0u8; 256]; 32];
-        let mut klens = [0usize; 32];
-        let mut vlens = [0usize; 32];
-
-        let bp = self.page(old_id)?;
-        for i in 0..count {
-            let k = bucket::bucket_key_at(bp, i)?;
-            let v = bucket::bucket_value_at(bp, i)?;
-            klens[i] = k.len();
-            vlens[i] = v.len();
-            keys[i][..k.len()].copy_from_slice(k);
-            vals[i][..v.len()].copy_from_slice(v);
-        }
-
-        // Reinit old bucket
-        let old_page = self.page_mut(old_id)?;
-        bucket::bucket_init(old_page, old_id, 0)?;
-
-        // Re-insert each entry into the correct bucket
-        for i in 0..count {
-            let target = self.bucket_for_key(&keys[i][..klens[i]])?;
-            let tp = self.page(target)?;
-            let pos = match bucket::bucket_search(tp, &keys[i][..klens[i]])? {
-                Ok(j) | Err(j) => j,
-            };
-            let tm = self.page_mut(target)?;
-            bucket::bucket_insert_at(tm, pos, &keys[i][..klens[i]], &vals[i][..vlens[i]])?;
         }
         Ok(())
     }
@@ -275,17 +278,63 @@ impl StorageEngine for LinearHashEngine<'_> {
         let bp = self.page(bid)?;
         if let Ok(i) = bucket::bucket_search(bp, key)? {
             let old_sz = bucket::bucket_entry_size(bp, i)?;
-            let bm = self.page_mut(bid)?;
-            bucket::bucket_delete_at(bm, i)?;
-            let bp2 = self.page(bid)?;
-            let pos = match bucket::bucket_search(bp2, key)? {
-                Ok(j) | Err(j) => j,
-            };
-            if !bucket::bucket_has_space(bp2, key.len(), value.len())? {
+            let count = bucket::bucket_count(bp)?;
+
+            // Check if the updated entry set fits the bucket's total
+            // capacity. Slot count stays the same; only data size changes.
+            let capacity = self.page_size
+                - bucket::BUCKET_HDR
+                - PAGE_CHECKSUM_SIZE
+                - count * bucket::BUCKET_SLOT;
+            let mut total_data: usize = 0;
+            for j in 0..count {
+                total_data += bucket::bucket_entry_size(bp, j)?;
+            }
+            let new_total = total_data - old_sz + key.len() + value.len();
+            if new_total > capacity {
                 return Err(Error::CapacityExhausted);
             }
-            let bm2 = self.page_mut(bid)?;
-            bucket::bucket_insert_at(bm2, pos, key, value)?;
+
+            // Compact-and-replace: collect all entries, reinitialise the
+            // bucket, and re-insert with the updated value. This reclaims
+            // any space leaked by previous deletes.
+            let mut keys_buf: [[u8; 256]; 32] = [[0u8; 256]; 32];
+            let mut vals_buf: [[u8; 256]; 32] = [[0u8; 256]; 32];
+            let mut klens = [0usize; 32];
+            let mut vlens = [0usize; 32];
+
+            for j in 0..count {
+                let k = bucket::bucket_key_at(bp, j)?;
+                let v = bucket::bucket_value_at(bp, j)?;
+                klens[j] = k.len();
+                vlens[j] = v.len();
+                keys_buf[j][..k.len()].copy_from_slice(k);
+                if j == i {
+                    // Replace with new value
+                    vlens[j] = value.len();
+                    vals_buf[j][..value.len()].copy_from_slice(value);
+                } else {
+                    vals_buf[j][..v.len()].copy_from_slice(v);
+                }
+            }
+
+            let bm = self.page_mut(bid)?;
+            bucket::bucket_init(bm, bid, 0)?;
+
+            for j in 0..count {
+                let bp2 = self.page(bid)?;
+                let pos = match bucket::bucket_search(bp2, &keys_buf[j][..klens[j]])? {
+                    Ok(p) | Err(p) => p,
+                };
+                let bm2 = self.page_mut(bid)?;
+                bucket::bucket_insert_at(
+                    bm2,
+                    pos,
+                    &keys_buf[j][..klens[j]],
+                    &vals_buf[j][..vlens[j]],
+                )?;
+            }
+
             let delta = (key.len() + value.len()) as i64 - old_sz as i64;
             return self.add_data_bytes(delta);
         }
@@ -352,32 +401,24 @@ mod tests {
     }
 
     #[test]
-    fn new_valid() {
+    fn new_valid_and_invalid() {
         let mut buf = [0u8; 2048];
         assert!(LinearHashEngine::new(&mut buf, 128, 4).is_some());
+        let mut small = [0u8; 256];
+        assert!(LinearHashEngine::new(&mut small, 128, 4).is_none());
+        assert!(LinearHashEngine::new(&mut buf, 128, 3).is_none());
     }
 
     #[test]
-    fn new_invalid() {
-        let mut buf = [0u8; 256];
-        assert!(LinearHashEngine::new(&mut buf, 128, 4).is_none()); // not enough pages
-        let mut buf2 = [0u8; 2048];
-        assert!(LinearHashEngine::new(&mut buf2, 128, 3).is_none()); // not power of 2
-    }
-
-    #[test]
-    fn put_and_get() {
+    fn put_get_delete() {
         let mut buf = [0u8; 4096];
         let mut e = make(&mut buf);
         assert_eq!(e.put(b"hello", b"world"), Ok(()));
         assert_eq!(e.get(b"hello"), Ok(Some(b"world".as_slice())));
-    }
-
-    #[test]
-    fn get_missing() {
-        let mut buf = [0u8; 2048];
-        let e = make(&mut buf);
         assert_eq!(e.get(b"nope"), Ok(None));
+        assert_eq!(e.delete(b"hello"), Ok(true));
+        assert_eq!(e.get(b"hello"), Ok(None));
+        assert_eq!(e.delete(b"nope"), Ok(false));
     }
 
     #[test]
@@ -388,22 +429,6 @@ mod tests {
         assert_eq!(e.put(b"k", b"v2"), Ok(()));
         assert_eq!(e.get(b"k"), Ok(Some(b"v2".as_slice())));
         assert_eq!(e.stats().key_count, 1);
-    }
-
-    #[test]
-    fn delete_existing() {
-        let mut buf = [0u8; 4096];
-        let mut e = make(&mut buf);
-        assert_eq!(e.put(b"k", b"v"), Ok(()));
-        assert_eq!(e.delete(b"k"), Ok(true));
-        assert_eq!(e.get(b"k"), Ok(None));
-    }
-
-    #[test]
-    fn delete_missing() {
-        let mut buf = [0u8; 2048];
-        let mut e = make(&mut buf);
-        assert_eq!(e.delete(b"nope"), Ok(false));
     }
 
     #[test]
@@ -422,44 +447,30 @@ mod tests {
     }
 
     #[test]
-    fn stats_accuracy() {
+    fn stats_and_flush() {
         let mut buf = [0u8; 4096];
         let mut e = make(&mut buf);
         assert_eq!(e.stats().key_count, 0);
         assert_eq!(e.put(b"ab", b"cd"), Ok(()));
         assert_eq!(e.stats().key_count, 1);
         assert_eq!(e.stats().data_bytes, 4);
-    }
-
-    #[test]
-    fn flush_is_noop() {
-        let mut buf = [0u8; 2048];
-        let mut e = make(&mut buf);
         assert_eq!(e.flush(), Ok(()));
     }
 
     #[test]
     fn capacity_exhaustion() {
-        // Small buffer: 3 pages of 128 bytes (1 meta + 2 buckets)
-        let mut buf = [0u8; 384];
+        let mut buf = [0u8; 384]; // 1 meta + 2 buckets of 128 bytes
         let mut e = LinearHashEngine::new(&mut buf, 128, 2).unwrap();
         let mut i = 0u16;
-        loop {
-            let k = i.to_le_bytes();
-            if e.put(&k, b"val").is_err() {
-                break;
-            }
+        while e.put(&i.to_le_bytes(), b"val").is_ok() {
             i += 1;
-            if i > 200 {
-                break; // safety net
-            }
         }
-        assert!(i > 0); // at least some keys were inserted
+        assert!(i > 0);
     }
 
     #[test]
     fn many_keys_with_splits_small_initial() {
-        // Larger buffer with small initial bucket count to trigger many splits.
+        // Need enough pages for many splits.
         #[allow(clippy::large_stack_arrays)]
         let mut buf = [0u8; 8192];
         let mut e = LinearHashEngine::new(&mut buf, 128, 2).unwrap();
@@ -475,26 +486,13 @@ mod tests {
     }
 
     #[test]
-    fn update_oversize_value_fails() {
-        // With 64-byte pages each bucket has only ~36 usable bytes
-        // (header=24, CRC=4). Insert a key with a small value, then try
-        // to update it with a value that exceeds the bucket capacity.
-        // The put-update path should return CapacityExhausted (line 285)
-        // because after deleting the old entry the new value still won't fit.
+    fn update_oversize_preserves_old_value() {
         let mut buf = [0u8; 256];
         let mut e = LinearHashEngine::new(&mut buf, 64, 2).unwrap();
-
-        // Insert a key with a small (1-byte) value.
         assert_eq!(e.put(b"ab", &[1]), Ok(()));
+        // Value too large for bucket — update must fail and preserve original.
+        assert_eq!(e.put(b"ab", &[0xFFu8; 30]), Err(Error::CapacityExhausted));
         assert_eq!(e.get(b"ab"), Ok(Some([1].as_slice())));
-
-        // Try to update with a value far too large for the bucket.
-        // Usable space is ~36 bytes; key is 2 bytes, value is 30 bytes,
-        // plus 8 bytes for the slot = 40 > 36. This must fail.
-        let big = [0xFFu8; 30];
-        assert_eq!(e.put(b"ab", &big), Err(Error::CapacityExhausted));
-
-        // Original value should be gone because the update path deletes
-        // before checking space, but the key count is unchanged.
+        assert_eq!(e.stats().key_count, 1);
     }
 }

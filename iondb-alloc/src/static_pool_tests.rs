@@ -207,11 +207,15 @@ fn deallocate_out_of_range_pointer() {
     let mut pool = StaticPoolAllocator::new(&mut buf, 16).unwrap(); // OK in tests
     let layout = Layout::from_size_align(8, 8).unwrap(); // OK in tests
 
-    let ptr = pool.allocate(layout).unwrap(); // OK in tests
+    // Allocate one block to establish pool state; pointer itself is not needed.
+    let _ptr = pool.allocate(layout).unwrap(); // OK in tests
     assert_eq!(pool.allocated_count(), 1);
 
-    // Point well past the pool area
-    let far_ptr = unsafe { ptr.add(4096) };
+    // Point to a completely separate allocation that is definitely outside the pool.
+    // Using ptr.add(N) to go out-of-bounds is UB even without dereferencing, so we
+    // instead take the address of an unrelated local buffer.
+    let mut other_buf = [0u8; 8];
+    let far_ptr = other_buf.as_mut_ptr();
     pool.deallocate(far_ptr, layout);
     // Deallocate should be silently ignored
     assert_eq!(pool.allocated_count(), 1);
@@ -279,5 +283,20 @@ fn new_borderline_sizes() {
     for size in 17..70 {
         let mut buf = [0u8; 128];
         let _ = StaticPoolAllocator::new(&mut buf[..size], 32);
+    }
+}
+
+#[test]
+fn bitmap_overflow_alignment_edge_case() {
+    // The bitmap_needed > pool_offset guard (line 83) triggers when alignment
+    // makes pool_offset small enough that the recalculated block_count needs
+    // more bitmap bytes than pool_offset can hold. This depends on the buffer's
+    // memory address. Sweep all alignments via sub-slices to guarantee coverage.
+    let mut big = [0u8; 256];
+    for start in 0..8 {
+        let sub = &mut big[start..start + 73];
+        // With block_size=8, orig_bc=8, bitmap_bytes=1. If (buf_addr + 1) is
+        // aligned to 8, pool_offset=1, recalc_bc=9, bitmap_needed=2 > 1.
+        let _ = StaticPoolAllocator::new(sub, 8);
     }
 }

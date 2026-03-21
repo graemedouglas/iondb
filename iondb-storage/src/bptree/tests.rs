@@ -162,9 +162,6 @@ fn capacity_exhaustion() {
             break;
         }
         i += 1;
-        if i > 200 {
-            break; // safety net
-        }
     }
     assert!(i > 0); // at least some inserts succeeded
 }
@@ -249,14 +246,7 @@ fn range_single_leaf() {
 
 #[test]
 fn internal_node_split_large() {
-    // 64-byte pages with a large buffer, inserting 120 keys in big-endian order
-    // to force a deep tree (3+ levels) with internal node splits.
-    // Covers: propagate_split → split_internal_and_insert (line 265),
-    //         insertion loop where !inserted && key < ek (lines 303-307),
-    //         internal_set_left_child (lines 251-253),
-    //         write_key_slot in internal_insert (line 346),
-    //         leaf_prev via sibling chain verification (lines 84-86).
-    // Large stack array needed to have enough pages for a 3-level tree.
+    // 120 keys with 64-byte pages forces 3+ level tree with internal splits.
     #[allow(clippy::large_stack_arrays)]
     let mut buf = [0u8; 65536];
     let mut e = BTreeEngine::new(&mut buf, 64).unwrap();
@@ -272,7 +262,6 @@ fn internal_node_split_large() {
     }
     assert_eq!(e.stats().key_count, u64::from(count));
 
-    // Verify leaf chain via range scan covers all keys and leaf_prev is set
     let mut collected = alloc::vec::Vec::new();
     e.range(&0u16.to_be_bytes(), &count.to_be_bytes(), |k, _v| {
         collected.push(k.to_vec());
@@ -280,31 +269,24 @@ fn internal_node_split_large() {
     })
     .unwrap();
     assert_eq!(collected.len(), count as usize);
-    // Keys should be in sorted order
     for w in collected.windows(2) {
         assert!(w[0] < w[1], "keys not sorted: {:?} >= {:?}", w[0], w[1]);
     }
 
-    // Walk the leaf chain and verify leaf_prev pointers (covers node.rs lines 84-86).
-    // Find the first leaf by looking up key 0.
     let (first_leaf, _, _) = e.find_leaf(&0u16.to_be_bytes()).unwrap();
-    let mut cur = first_leaf;
-    let mut leaf_count = 1usize;
-    // Walk forward to the last leaf
+    let (mut cur, mut leaf_count) = (first_leaf, 1usize);
     loop {
         let pg = e.page(cur).unwrap();
         let next = node::leaf_next(pg).unwrap();
         if next == node::NO_PAGE {
             break;
         }
-        // Verify backward pointer of next leaf points to current
         let next_pg = e.page(next).unwrap();
         assert_eq!(node::leaf_prev(next_pg).unwrap(), cur);
         cur = next;
         leaf_count += 1;
     }
     assert!(leaf_count > 1, "expected multiple leaves");
-    // First leaf should have prev == NO_PAGE
     let first_pg = e.page(first_leaf).unwrap();
     assert_eq!(node::leaf_prev(first_pg).unwrap(), node::NO_PAGE);
 }
@@ -364,32 +346,70 @@ fn proptest_repro_key_lost_after_split() {
     }
 }
 
-// The split_leaf_and_insert was rewritten with capacity-aware split
-// points, eliminating slot/data area collision bugs.
+#[test]
+fn two_pages_mut_same_id() {
+    // Corrupted state: same page ID for both pages.
+    let mut buf = [0u8; 1024];
+    let mut e = make_engine(&mut buf);
+    assert_eq!(e.two_pages_mut(1, 1), Err(Error::PageError));
+}
 
 #[test]
-fn two_pages_mut_reversed_order() {
-    // Exercise the a > b path (line 77) in two_pages_mut.
-    // Insert enough keys to cause a split where the new page has a
-    // lower ID than the leaf being split... Actually, alloc_page always
-    // returns increasing IDs, so a < b always. The reverse path is hit
-    // indirectly when split_internal_and_insert creates pages.
-    // We trigger it by forcing many internal node splits.
-    #[allow(clippy::large_stack_arrays)]
-    let mut buf = [0u8; 65535];
-    let mut engine = BTreeEngine::new(&mut buf, 128).unwrap();
-    // Insert many keys to force multiple internal splits
-    for i in 0u16..100 {
-        let k = i.to_be_bytes();
-        let _ = engine.put(&k, &k);
+fn two_pages_mut_oob() {
+    // Corrupted state: page ID beyond buffer bounds.
+    let mut buf = [0u8; 1024];
+    let mut e = make_engine(&mut buf);
+    assert_eq!(e.two_pages_mut(1, 999), Err(Error::PageError));
+}
+
+#[test]
+fn two_pages_mut_reversed() {
+    // Exercise the a > b path directly (alloc_page never produces a > b).
+    let mut buf = [0u8; 1024];
+    let mut e = make_engine(&mut buf);
+    let (pa, pb) = e.two_pages_mut(3, 1).unwrap();
+    assert_eq!(pa.len(), 128); // page 3
+    assert_eq!(pb.len(), 128); // page 1
+}
+
+#[test]
+fn corrupted_tree_cycle_detection() {
+    // Corrupt tree to create a cycle: internal node child → itself.
+    // find_leaf should detect depth >= MAX_HEIGHT and return Corruption.
+    let mut buf = [0u8; 16384];
+    let mut e = BTreeEngine::new(&mut buf, 64).unwrap();
+    for i in 0u8..20 {
+        e.put(&[b'k', i / 10 + b'0', i % 10 + b'0'], &[i]).unwrap();
     }
-    // Verify all inserted keys
-    for i in 0u16..100 {
-        let k = i.to_be_bytes();
-        if engine.get(&k).unwrap().is_some() {
-            assert_eq!(engine.get(&k).unwrap(), Some(k.as_slice()));
-        }
+    let root = e.root_id().unwrap();
+    let pg = e.page(root).unwrap();
+    let child = node::internal_left_child(pg).unwrap();
+    // Corrupt child: change page type to Internal and point back to root
+    {
+        let p = e.page_mut(child).unwrap();
+        p[0] = iondb_core::page::PageType::BTreeInternal.as_byte();
+        endian::write_u16_le(&mut p[16..], 0).unwrap(); // count=0
+        endian::write_u32_le(&mut p[20..], root).unwrap(); // left_child=root
     }
+    assert_eq!(e.get(b"anything"), Err(Error::Corruption));
+}
+
+#[test]
+fn split_adjustment_left_heavy() {
+    // Force split point adjustment: large first entry makes naive midpoint
+    // overshoot left-half capacity (cum[mid] > cap).
+    let mut buf = [0u8; 4096];
+    let mut e = BTreeEngine::new(&mut buf, 64).unwrap();
+    // 3 small entries (cost 9 each = 27, fits in cap=32)
+    e.put(&[0x01], &[]).unwrap();
+    e.put(&[0x02], &[]).unwrap();
+    e.put(&[0x03], &[]).unwrap();
+    // Insert before all with large value (cost 24), triggers split.
+    // Naive mid=2 gives cum[2]=33 > cap=32, so mid adjusts to 1.
+    e.put(&[0x00], &[0xAA; 15]).unwrap();
+    assert_eq!(e.get(&[0x00]), Ok(Some([0xAA; 15].as_slice())));
+    assert_eq!(e.get(&[0x01]), Ok(Some([].as_slice())));
+    assert_eq!(e.get(&[0x03]), Ok(Some([].as_slice())));
 }
 
 #[test]
@@ -454,4 +474,27 @@ fn internal_set_left_child_round_trip() {
     assert_eq!(node::internal_left_child(&page).unwrap(), 42);
     node::internal_set_left_child(&mut page, 99).unwrap();
     assert_eq!(node::internal_left_child(&page).unwrap(), 99);
+}
+
+#[test]
+fn corrupted_internal_split_propagation() {
+    // Corrupt internal node key slot so split_internal_and_insert fails
+    // via propagate_split (mod.rs line 277 ? error path).
+    #[allow(clippy::large_stack_arrays)]
+    let mut buf = [0u8; 65536];
+    let mut e = BTreeEngine::new(&mut buf, 64).unwrap();
+    for i in 0u16..50 {
+        e.put(&i.to_be_bytes(), &i.to_be_bytes()).unwrap();
+    }
+    let search = 200u16.to_be_bytes();
+    let (_leaf_id, stack, depth) = e.find_leaf(&search).unwrap();
+    let parent_id = stack[depth - 1];
+    // Corrupt first key's offset and shrink data_end so has_space is false.
+    let p = e.page_mut(parent_id).unwrap();
+    endian::write_u16_le(&mut p[node::INTL_HDR + 4..], 0xFFFF).unwrap();
+    // INTL_HDR is a small constant (< 256), truncation is safe here.
+    #[allow(clippy::cast_possible_truncation)]
+    let intl_hdr_u16 = node::INTL_HDR as u16;
+    endian::write_u16_le(&mut p[18..], intl_hdr_u16).unwrap();
+    assert!(e.put(&search, &[0xBB; 30]).is_err());
 }

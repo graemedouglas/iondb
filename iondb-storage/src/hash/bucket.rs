@@ -77,7 +77,7 @@ fn bucket_set_count(page: &mut [u8], c: usize) -> Result<()> {
     endian::write_u16_le(&mut page[16..], to_u16(c))
 }
 
-fn bucket_data_end(page: &[u8]) -> Result<usize> {
+pub fn bucket_data_end(page: &[u8]) -> Result<usize> {
     Ok(usize::from(endian::read_u16_le(&page[18..])?))
 }
 
@@ -86,11 +86,13 @@ fn bucket_set_data_end(page: &mut [u8], v: usize) -> Result<()> {
 }
 
 /// Local depth (for extendible hashing).
+#[cfg(feature = "storage-hash-ext")]
 pub fn bucket_local_depth(page: &[u8]) -> Result<u16> {
     endian::read_u16_le(&page[20..])
 }
 
 /// Set local depth.
+#[cfg(feature = "storage-hash-ext")]
 pub fn bucket_set_local_depth(page: &mut [u8], d: u16) -> Result<()> {
     endian::write_u16_le(&mut page[20..], d)
 }
@@ -179,4 +181,20 @@ pub fn bucket_delete_at(page: &mut [u8], i: usize) -> Result<()> {
 pub fn bucket_entry_size(page: &[u8], i: usize) -> Result<usize> {
     let s = read_slot(page, slot_base(i))?;
     Ok(s.key_len + s.val_len)
+}
+
+#[cfg(test)]
+// Tests use unwrap for brevity; panics are acceptable in test code.
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bucket_insert_tiny_page_errors() {
+        // Page too small for slot area — write_slot fails, exercising
+        // the error propagation path in bucket_insert_at.
+        let mut page = [0u8; 26]; // BUCKET_HDR(24) + 2 bytes
+        bucket_init(&mut page, 0, 0).unwrap();
+        assert!(bucket_insert_at(&mut page, 0, &[1], &[]).is_err());
+    }
 }

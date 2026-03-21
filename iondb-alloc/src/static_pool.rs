@@ -14,7 +14,6 @@
 //! ```
 
 use core::alloc::Layout;
-use core::ptr;
 use iondb_core::error::{Error, Result};
 use iondb_core::MemoryAllocator;
 
@@ -81,12 +80,6 @@ impl<'a> StaticPoolAllocator<'a> {
         // Verify bitmap still fits
         let bitmap_needed = block_count.div_ceil(8);
         if bitmap_needed > pool_offset {
-            return None;
-        }
-
-        // Verify it fits
-        let total_needed = pool_offset + block_count * block_size;
-        if total_needed > buf.len() {
             return None;
         }
 
@@ -212,12 +205,10 @@ impl MemoryAllocator for StaticPoolAllocator<'_> {
         }
     }
 
-    // Trait method is safe; callers uphold pointer validity invariants.
-    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     fn reallocate(
         &mut self,
         ptr: *mut u8,
-        old_layout: Layout,
+        _old_layout: Layout,
         new_layout: Layout,
     ) -> Result<*mut u8> {
         // If the new size still fits in one block, just return the same pointer
@@ -225,17 +216,9 @@ impl MemoryAllocator for StaticPoolAllocator<'_> {
             return Ok(ptr);
         }
 
-        // Otherwise we can't satisfy it — static pool has fixed block sizes
-        // In a real implementation we'd allocate a new block and copy, but
-        // our blocks are all the same size, so if it doesn't fit, it fails.
-        let new_ptr = self.allocate(new_layout)?;
-        let copy_len = old_layout.size().min(new_layout.size());
-        // SAFETY: Both pointers are valid and non-overlapping (different blocks).
-        unsafe {
-            ptr::copy_nonoverlapping(ptr, new_ptr, copy_len);
-        }
-        self.deallocate(ptr, old_layout);
-        Ok(new_ptr)
+        // Fixed block sizes — cannot grow beyond block_size.
+        // allocate() rejects the same conditions, so the copy path is unreachable.
+        Err(Error::AllocationFailed)
     }
 
     fn available(&self) -> Option<usize> {
