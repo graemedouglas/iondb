@@ -492,6 +492,7 @@ fn corrupted_internal_split_propagation() {
     // Corrupt first key's offset and shrink data_end so has_space is false.
     let p = e.page_mut(parent_id).unwrap();
     endian::write_u16_le(&mut p[node::INTL_HDR + 4..], 0xFFFF).unwrap();
+    // INTL_HDR is a small constant (< 256), truncation is safe here.
     #[allow(clippy::cast_possible_truncation)]
     let intl_hdr_u16 = node::INTL_HDR as u16;
     endian::write_u16_le(&mut p[18..], intl_hdr_u16).unwrap();
