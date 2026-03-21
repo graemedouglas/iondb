@@ -207,7 +207,8 @@ fn deallocate_out_of_range_pointer() {
     let mut pool = StaticPoolAllocator::new(&mut buf, 16).unwrap(); // OK in tests
     let layout = Layout::from_size_align(8, 8).unwrap(); // OK in tests
 
-    let ptr = pool.allocate(layout).unwrap(); // OK in tests
+    // Allocate one block to establish pool state; pointer itself is not needed.
+    pool.allocate(layout).unwrap(); // OK in tests
     assert_eq!(pool.allocated_count(), 1);
 
     // Point to a completely separate allocation that is definitely outside the pool.
