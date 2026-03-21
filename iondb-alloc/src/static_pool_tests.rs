@@ -210,8 +210,11 @@ fn deallocate_out_of_range_pointer() {
     let ptr = pool.allocate(layout).unwrap(); // OK in tests
     assert_eq!(pool.allocated_count(), 1);
 
-    // Point well past the pool area
-    let far_ptr = unsafe { ptr.add(4096) };
+    // Point to a completely separate allocation that is definitely outside the pool.
+    // Using ptr.add(N) to go out-of-bounds is UB even without dereferencing, so we
+    // instead take the address of an unrelated local buffer.
+    let mut other_buf = [0u8; 8];
+    let far_ptr = other_buf.as_mut_ptr();
     pool.deallocate(far_ptr, layout);
     // Deallocate should be silently ignored
     assert_eq!(pool.allocated_count(), 1);
