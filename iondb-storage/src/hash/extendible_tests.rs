@@ -217,7 +217,9 @@ fn oversized_entry_after_split() {
     let mut buf = [0u8; 4096];
     let mut e = ExtendibleHashEngine::new(&mut buf, 64).unwrap();
     // Fill buckets with small entries to trigger splits.
-    for i in 0u8..8 { let _ = e.put(&[i], &[i]); }
+    for i in 0u8..8 {
+        let _ = e.put(&[i], &[i]);
+    }
     // Try a value larger than a single empty bucket can hold (28 bytes max).
     assert_eq!(e.put(&[0xFF], &[0xAA; 28]), Err(Error::CapacityExhausted));
 }

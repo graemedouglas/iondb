@@ -86,11 +86,13 @@ fn bucket_set_data_end(page: &mut [u8], v: usize) -> Result<()> {
 }
 
 /// Local depth (for extendible hashing).
+#[cfg(feature = "storage-hash-ext")]
 pub fn bucket_local_depth(page: &[u8]) -> Result<u16> {
     endian::read_u16_le(&page[20..])
 }
 
 /// Set local depth.
+#[cfg(feature = "storage-hash-ext")]
 pub fn bucket_set_local_depth(page: &mut [u8], d: u16) -> Result<()> {
     endian::write_u16_le(&mut page[20..], d)
 }

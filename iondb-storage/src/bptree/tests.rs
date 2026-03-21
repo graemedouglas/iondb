@@ -483,13 +483,17 @@ fn corrupted_internal_split_propagation() {
     #[allow(clippy::large_stack_arrays)]
     let mut buf = [0u8; 65536];
     let mut e = BTreeEngine::new(&mut buf, 64).unwrap();
-    for i in 0u16..50 { e.put(&i.to_be_bytes(), &i.to_be_bytes()).unwrap(); }
+    for i in 0u16..50 {
+        e.put(&i.to_be_bytes(), &i.to_be_bytes()).unwrap();
+    }
     let search = 200u16.to_be_bytes();
     let (_leaf_id, stack, depth) = e.find_leaf(&search).unwrap();
     let parent_id = stack[depth - 1];
     // Corrupt first key's offset and shrink data_end so has_space is false.
     let p = e.page_mut(parent_id).unwrap();
     endian::write_u16_le(&mut p[node::INTL_HDR + 4..], 0xFFFF).unwrap();
-    endian::write_u16_le(&mut p[18..], node::INTL_HDR as u16).unwrap();
+    #[allow(clippy::cast_possible_truncation)]
+    let intl_hdr_u16 = node::INTL_HDR as u16;
+    endian::write_u16_le(&mut p[18..], intl_hdr_u16).unwrap();
     assert!(e.put(&search, &[0xBB; 30]).is_err());
 }
