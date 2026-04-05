@@ -8,15 +8,15 @@
 //! ## Storage Layouts
 //!
 //! - **Flat**: Records appended back-to-back. Minimal overhead.
-//! - **PageSegmented**: Records in fixed-size pages with per-page checksums.
+//! - **`PageSegmented`**: Records in fixed-size pages with per-page checksums.
 //!   Corruption isolation per page.
 //!
 //! ## Sync Policies
 //!
-//! - **EveryRecord**: Maximum durability.
-//! - **EveryTransaction**: Sync on commit/rollback.
-//! - **Periodic**: Sync every N records.
-//! - **None**: Caller controls sync.
+//! - **`EveryRecord`**: Maximum durability.
+//! - **`EveryTransaction`**: Sync on commit/rollback.
+//! - **`Periodic`**: Sync every N records.
+//! - **`None`**: Caller controls sync.
 
 #![no_std]
 #![forbid(unsafe_code)]

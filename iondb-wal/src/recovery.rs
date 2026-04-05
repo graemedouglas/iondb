@@ -1,1 +1,1 @@
-//! Recovery readers: raw and committed-only, with zero-alloc no_std support.
+//! Recovery readers: raw and committed-only, with zero-alloc `no_std` support.
