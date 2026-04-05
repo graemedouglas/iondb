@@ -7,12 +7,7 @@
 use iondb_core::error::{Error, Result};
 use iondb_core::page::PAGE_OVERHEAD;
 
-/// Size of a WAL record header in bytes.
-///
-/// The record module is not yet complete, so we keep a local copy of this
-/// constant here. It must match `record::RECORD_HEADER_SIZE` once that module
-/// is implemented.
-const RECORD_HEADER_SIZE: usize = 29;
+use crate::record::RECORD_HEADER_SIZE;
 
 /// Minimum circular-buffer capacity: enough to hold the WAL header (32 bytes)
 /// plus one record header.

@@ -38,10 +38,9 @@ pub mod record;
 pub mod recovery;
 pub mod wal;
 
-// Re-exports will be added as modules are implemented:
-// pub use config::{SyncPolicy, TruncationMode, WalConfig, WalLayout};
-// pub use record::{RecordType, WalRecord, MAGIC, RECORD_HEADER_SIZE};
-// pub use recovery::{CommittedRecoveryReader, RawRecoveryReader};
-// #[cfg(feature = "alloc")]
-// pub use recovery::OwnedWalRecord;
-// pub use wal::Wal;
+pub use config::{SyncPolicy, TruncationMode, WalConfig, WalLayout};
+pub use record::{RecordType, WalRecord, MAGIC, RECORD_HEADER_SIZE};
+pub use recovery::{CommittedRecoveryReader, RawRecoveryReader};
+#[cfg(feature = "alloc")]
+pub use recovery::OwnedWalRecord;
+pub use wal::Wal;

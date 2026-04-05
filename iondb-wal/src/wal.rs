@@ -281,7 +281,8 @@ impl<I: IoBackend> Wal<I> {
     ///
     /// # Errors
     ///
-    /// Propagates any error from [`append_record`][Self::append_record].
+    /// Returns [`Error::Io`] if the backend write fails, or [`Error::WalError`]
+    /// if the record is too large.
     pub fn begin_tx(&mut self, txn_id: TxnId) -> Result<Lsn> {
         self.append_record(txn_id, RecordType::Begin, &[], &[])
     }
@@ -292,7 +293,8 @@ impl<I: IoBackend> Wal<I> {
     ///
     /// # Errors
     ///
-    /// Propagates any error from [`append_record`][Self::append_record].
+    /// Returns [`Error::Io`] if the backend write fails, or [`Error::WalError`]
+    /// if the record is too large.
     pub fn put(&mut self, txn_id: TxnId, key: &[u8], value: &[u8]) -> Result<Lsn> {
         self.append_record(txn_id, RecordType::Put, key, value)
     }
@@ -303,7 +305,8 @@ impl<I: IoBackend> Wal<I> {
     ///
     /// # Errors
     ///
-    /// Propagates any error from [`append_record`][Self::append_record].
+    /// Returns [`Error::Io`] if the backend write fails, or [`Error::WalError`]
+    /// if the record is too large.
     pub fn delete(&mut self, txn_id: TxnId, key: &[u8]) -> Result<Lsn> {
         self.append_record(txn_id, RecordType::Delete, key, &[])
     }
@@ -314,7 +317,8 @@ impl<I: IoBackend> Wal<I> {
     ///
     /// # Errors
     ///
-    /// Propagates any error from [`append_record`][Self::append_record].
+    /// Returns [`Error::Io`] if the backend write fails, or [`Error::WalError`]
+    /// if the record is too large.
     pub fn commit_tx(&mut self, txn_id: TxnId) -> Result<Lsn> {
         self.append_record(txn_id, RecordType::Commit, &[], &[])
     }
@@ -325,7 +329,8 @@ impl<I: IoBackend> Wal<I> {
     ///
     /// # Errors
     ///
-    /// Propagates any error from [`append_record`][Self::append_record].
+    /// Returns [`Error::Io`] if the backend write fails, or [`Error::WalError`]
+    /// if the record is too large.
     pub fn rollback_tx(&mut self, txn_id: TxnId) -> Result<Lsn> {
         self.append_record(txn_id, RecordType::Rollback, &[], &[])
     }
