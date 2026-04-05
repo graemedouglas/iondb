@@ -544,46 +544,76 @@ impl<I: IoBackend> Wal<I> {
         Ok(())
     }
 
-    // ── Recovery (stubs until Task 7) ────────────────────────────────────────
+    // ── Recovery ────────────────────────────────────────────────────────────
 
-    // TODO: uncomment after recovery module (Task 7)
-    //
-    // /// Create a raw recovery reader from recovery_start() to write_end().
-    // pub fn recover(&self) -> Result<crate::recovery::RawRecoveryReader<'_, I>> {
-    //     crate::recovery::RawRecoveryReader::new(
-    //         &self.backend,
-    //         self.recovery_start(),
-    //         self.write_end(),
-    //         &self.config,
-    //     )
-    // }
-    //
-    // /// Create a committed recovery reader.
-    // pub fn recover_committed<'a>(
-    //     &'a self,
-    //     scratch: &'a mut [TxnId],
-    // ) -> Result<crate::recovery::CommittedRecoveryReader<'a, I>> {
-    //     crate::recovery::CommittedRecoveryReader::new(
-    //         &self.backend,
-    //         self.recovery_start(),
-    //         self.write_end(),
-    //         &self.config,
-    //         scratch,
-    //     )
-    // }
-    //
-    // /// Recover all committed records into a Vec (requires alloc feature).
-    // #[cfg(feature = "alloc")]
-    // pub fn recover_committed_to_vec(
-    //     &self,
-    // ) -> Result<alloc::vec::Vec<crate::recovery::OwnedWalRecord>> {
-    //     crate::recovery::recover_committed_to_vec(
-    //         &self.backend,
-    //         self.recovery_start(),
-    //         self.write_end(),
-    //         &self.config,
-    //     )
-    // }
+    /// Create a raw recovery reader from [`recovery_start`][Self::recovery_start]
+    /// to [`write_end`][Self::write_end].
+    ///
+    /// The returned reader yields every valid record, including those from
+    /// uncommitted transactions.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] if the backend cannot be read.
+    pub fn recover(&self) -> Result<crate::recovery::RawRecoveryReader<'_, I>> {
+        Ok(crate::recovery::RawRecoveryReader::new(
+            &self.backend,
+            &self.config.layout,
+            self.recovery_start(),
+            self.write_end(),
+        ))
+    }
+
+    /// Create a committed recovery reader.
+    ///
+    /// Performs a first pass over the WAL to identify committed transaction IDs,
+    /// storing them in the caller-provided `scratch` buffer. The second pass
+    /// (via [`CommittedRecoveryReader::next_record`]) yields only records from
+    /// committed transactions.
+    ///
+    /// [`CommittedRecoveryReader::next_record`]: crate::recovery::CommittedRecoveryReader::next_record
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::WalError`] if there are more committed transactions
+    /// than `scratch` slots.
+    pub fn recover_committed<'a>(
+        &'a self,
+        scratch: &'a mut [TxnId],
+    ) -> Result<crate::recovery::CommittedRecoveryReader<'a, I>> {
+        crate::recovery::CommittedRecoveryReader::new(
+            &self.backend,
+            &self.config.layout,
+            self.recovery_start(),
+            self.write_end(),
+            scratch,
+        )
+    }
+
+    /// Recover all committed records into a [`Vec`].
+    ///
+    /// Convenience wrapper around [`recover_committed`][Self::recover_committed]
+    /// that collects all committed records into heap-allocated
+    /// [`OwnedWalRecord`] values.
+    ///
+    /// [`OwnedWalRecord`]: crate::recovery::OwnedWalRecord
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from the underlying recovery reader.
+    #[cfg(feature = "alloc")]
+    pub fn recover_committed_to_vec(
+        &self,
+    ) -> Result<alloc::vec::Vec<crate::recovery::OwnedWalRecord>> {
+        let mut scratch_buf = alloc::vec![0u64; 256];
+        let mut reader = self.recover_committed(&mut scratch_buf)?;
+        let mut buf = alloc::vec![0u8; 512];
+        let mut records = alloc::vec::Vec::new();
+        while let Some(rec) = reader.next_record(&mut buf)? {
+            records.push(crate::recovery::OwnedWalRecord::from_borrowed(&rec));
+        }
+        Ok(records)
+    }
 
     // ── Queries ─────────────────────────────────────────────────────────────
 
