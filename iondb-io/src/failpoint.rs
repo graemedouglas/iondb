@@ -129,9 +129,8 @@ impl<T: IoBackend> IoBackend for FailpointIoBackend<T> {
 
     fn sync(&mut self) -> Result<()> {
         if self.should_trigger() {
-            match self.fault {
-                Some(Fault::SyncFailure | Fault::ErrorBeforeSync) => return Err(Error::Io),
-                _ => {}
+            if let Some(Fault::SyncFailure | Fault::ErrorBeforeSync) = self.fault {
+                return Err(Error::Io);
             }
         }
         self.inner.sync()
