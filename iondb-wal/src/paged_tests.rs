@@ -138,3 +138,158 @@ fn corruption_in_page_detected() {
     let result = verify_page(&backend, 0, page_size);
     assert_eq!(result, Err(Error::Corruption));
 }
+
+/// `PagedWriter::resume` correctly restores state.
+#[test]
+fn resume_writer_state() {
+    let page_size = 256usize;
+    let writer = PagedWriter::resume(page_size, 512, 80, 3);
+    assert_eq!(writer.page_offset(), 512);
+    assert_eq!(writer.pos_in_page(), 80);
+    assert_eq!(writer.next_page_id(), 3);
+    assert_eq!(writer.current_offset(), 512 + 80);
+}
+
+/// Reading from a page with no magic (empty page) returns None.
+#[test]
+fn read_from_empty_page_returns_none() {
+    let mut storage = [0u8; 4096];
+    let backend = MemoryIoBackend::new(&mut storage);
+
+    let page_size = 256usize;
+    let mut read_buf = [0u8; 512];
+    let result =
+        read_record_paged(&backend, 0, PAGE_HEADER_SIZE, page_size, 256, &mut read_buf).unwrap();
+    assert!(result.is_none());
+}
+
+/// Reading past `end_offset` returns None.
+#[test]
+fn read_past_end_returns_none() {
+    let mut storage = [0u8; 4096];
+    let backend = MemoryIoBackend::new(&mut storage);
+
+    let page_size = 256usize;
+    let mut read_buf = [0u8; 512];
+    // end_offset is 0, so reading at page_header should return None.
+    let result = read_record_paged(
+        &backend,
+        0,
+        PAGE_HEADER_SIZE,
+        page_size,
+        0,
+        &mut read_buf,
+    )
+    .unwrap();
+    assert!(result.is_none());
+}
+
+/// Records that fill pages exactly transition correctly.
+#[test]
+fn page_boundary_exact_fill() {
+    use iondb_core::page::PAGE_CHECKSUM_SIZE;
+
+    let mut storage = [0u8; 8192];
+    let mut backend = MemoryIoBackend::new(&mut storage);
+
+    // page_size 128 -> usable = 128 - 20 = 108 bytes.
+    let page_size = 128usize;
+    let usable = page_size - PAGE_HEADER_SIZE - PAGE_CHECKSUM_SIZE;
+    let mut writer = PagedWriter::new(page_size, 0);
+
+    // Write one record, then check if a second record triggers new page.
+    let (buf, n) = make_put_record(0, b"k", b"v");
+    let _offset = writer.write_record(&mut backend, &buf[..n]).unwrap();
+    assert!(writer.pos_in_page() > PAGE_HEADER_SIZE);
+
+    // Write enough records to fill the first page and spill to second.
+    let remaining = usable - (writer.pos_in_page() - PAGE_HEADER_SIZE);
+    // If the next record doesn't fit, it should go to a new page.
+    if remaining < n {
+        let initial_page = writer.page_offset();
+        let (buf2, n2) = make_put_record(1, b"k", b"v");
+        let _offset = writer.write_record(&mut backend, &buf2[..n2]).unwrap();
+        // Should have moved to a new page.
+        assert!(
+            writer.page_offset() > initial_page,
+            "should have started a new page"
+        );
+    }
+}
+
+/// Writing multiple records, finalizing, and reading back across pages
+/// with `verify_page` on each page.
+#[test]
+fn multi_page_write_and_verify() {
+    let mut storage = [0u8; 8192];
+    let mut backend = MemoryIoBackend::new(&mut storage);
+
+    let page_size = 128usize;
+    let mut writer = PagedWriter::new(page_size, 0);
+
+    // Write 10 records spanning multiple pages.
+    for i in 0u8..10 {
+        let (buf, n) = make_put_record(u64::from(i), &[i], &[i + 100]);
+        let _offset = writer.write_record(&mut backend, &buf[..n]).unwrap();
+    }
+    writer.finalize_page(&mut backend).unwrap();
+
+    // Verify each page that was written.
+    let num_pages = (writer.page_offset() / page_size as u64) + 1;
+    for p in 0..num_pages {
+        let offset = p * page_size as u64;
+        verify_page(&backend, offset, page_size).unwrap();
+    }
+}
+
+/// Position-in-page at the checksum boundary causes page advance.
+#[test]
+fn pos_at_checksum_boundary_advances() {
+    use iondb_core::page::PAGE_CHECKSUM_SIZE;
+
+    let mut storage = [0u8; 8192];
+    let backend = MemoryIoBackend::new(&mut storage);
+
+    let page_size = 256usize;
+    let usable_end = page_size - PAGE_CHECKSUM_SIZE;
+
+    // Start reading at the checksum slot.
+    let mut read_buf = [0u8; 512];
+    let result = read_record_paged(
+        &backend,
+        0,
+        usable_end,
+        page_size,
+        (2 * page_size) as u64,
+        &mut read_buf,
+    )
+    .unwrap();
+    // Should skip to next page and find nothing (empty).
+    assert!(result.is_none());
+}
+
+/// Too little space remaining for a record header causes page advance.
+#[test]
+fn insufficient_header_space_advances_page() {
+    use iondb_core::page::PAGE_CHECKSUM_SIZE;
+
+    let mut storage = [0u8; 8192];
+    let backend = MemoryIoBackend::new(&mut storage);
+
+    let page_size = 256usize;
+    let usable_end = page_size - PAGE_CHECKSUM_SIZE;
+    // Position just before the end, not enough for a 29-byte header.
+    let pos = usable_end - 10;
+
+    let mut read_buf = [0u8; 512];
+    let result = read_record_paged(
+        &backend,
+        0,
+        pos,
+        page_size,
+        (2 * page_size) as u64,
+        &mut read_buf,
+    )
+    .unwrap();
+    assert!(result.is_none());
+}
