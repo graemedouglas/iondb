@@ -1,0 +1,32 @@
+[package]
+name = "iondb-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+iondb-wal = { path = "../iondb-wal", features = ["alloc"] }
+iondb-io = { path = "../iondb-io", features = ["io-mem"] }
+iondb-core = { path = "../iondb-core", features = ["alloc"] }
+arbitrary = { version = "1", features = ["derive"] }
+
+[[bin]]
+name = "fuzz_wal_record_decode"
+path = "fuzz_targets/fuzz_wal_record_decode.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_wal_recovery"
+path = "fuzz_targets/fuzz_wal_recovery.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_wal_operations"
+path = "fuzz_targets/fuzz_wal_operations.rs"
+doc = false
