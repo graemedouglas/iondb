@@ -18,8 +18,7 @@
 //! ```
 
 use iondb_core::{
-    crc,
-    endian,
+    crc, endian,
     error::{Error, Result},
     types::{Lsn, TxnId},
 };

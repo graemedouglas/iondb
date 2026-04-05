@@ -178,8 +178,8 @@ impl WalConfig {
 #[cfg(test)]
 mod tests {
     extern crate alloc;
-    use alloc::format;
     use super::*;
+    use alloc::format;
 
     // ── helpers ─────────────────────────────────────────────────────────────
 

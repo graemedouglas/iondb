@@ -5,8 +5,7 @@
 //! the latest checkpoint LSN.
 
 use iondb_core::{
-    crc,
-    endian,
+    crc, endian,
     error::{Error, Result},
     traits::io_backend::IoBackend,
     types::Lsn,
@@ -226,11 +225,7 @@ pub fn read_record<'buf>(
 /// # Errors
 ///
 /// Returns [`Error::Io`] if the backend read fails.
-pub fn scan_for_magic(
-    backend: &impl IoBackend,
-    start: u64,
-    end: u64,
-) -> Result<Option<u64>> {
+pub fn scan_for_magic(backend: &impl IoBackend, start: u64, end: u64) -> Result<Option<u64>> {
     let mut offset = start;
     let mut prev_byte: Option<u8> = None;
 
@@ -262,10 +257,7 @@ pub fn scan_for_magic(
 /// # Errors
 ///
 /// Propagates any error from [`CircularHeader::encode`] or the backend write.
-pub fn write_circular_header(
-    backend: &mut impl IoBackend,
-    header: &CircularHeader,
-) -> Result<()> {
+pub fn write_circular_header(backend: &mut impl IoBackend, header: &CircularHeader) -> Result<()> {
     let mut buf = [0u8; CIRCULAR_HEADER_SIZE];
     header.encode(&mut buf)?;
     let written = backend.write(0, &buf)?;
@@ -445,6 +437,8 @@ mod tests {
 
         // One more read should return None
         let mut buf = [0u8; 512];
-        assert!(read_record(&backend, offset, end, &mut buf).unwrap().is_none());
+        assert!(read_record(&backend, offset, end, &mut buf)
+            .unwrap()
+            .is_none());
     }
 }

@@ -130,9 +130,7 @@ fn apply_ops(wal: &mut Wal<impl iondb_core::IoBackend>, ops: &[Op]) {
 }
 
 /// Collect committed records from a WAL as `(lsn, txn_id, record_type)` tuples.
-fn collect_committed_records(
-    wal: &Wal<impl iondb_core::IoBackend>,
-) -> Vec<(u64, u64, RecordType)> {
+fn collect_committed_records(wal: &Wal<impl iondb_core::IoBackend>) -> Vec<(u64, u64, RecordType)> {
     let mut scratch = [0u64; 64];
     let mut reader = wal.recover_committed(&mut scratch).expect("reader");
     let mut buf = [0u8; 512];
@@ -297,8 +295,7 @@ fn crash_with_every_transaction_sync_preserves_committed() {
         // Phase 2: Recover
         {
             let storage_len = storage.len() as u64;
-            let backend =
-                MemoryIoBackend::with_len(&mut storage, storage_len).expect("backend");
+            let backend = MemoryIoBackend::with_len(&mut storage, storage_len).expect("backend");
             let Ok(wal) = Wal::open(backend, config.clone()) else {
                 continue; // Not enough data; skip this crash_after
             };
@@ -358,8 +355,7 @@ fn crash_with_no_sync_may_lose_data() {
     // Phase 2: Re-open and recover
     {
         let storage_len = storage.len() as u64;
-        let backend =
-            MemoryIoBackend::with_len(&mut storage, storage_len).expect("backend");
+        let backend = MemoryIoBackend::with_len(&mut storage, storage_len).expect("backend");
         let wal = Wal::open(backend, config).expect("open");
 
         let mut scratch = [0u64; 64];

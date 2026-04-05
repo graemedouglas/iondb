@@ -32,6 +32,7 @@ extern crate std;
 pub use iondb_core;
 
 pub mod config;
+pub(crate) mod cursor;
 pub mod flat;
 pub mod paged;
 pub mod record;
@@ -40,7 +41,7 @@ pub mod wal;
 
 pub use config::{SyncPolicy, TruncationMode, WalConfig, WalLayout};
 pub use record::{RecordType, WalRecord, MAGIC, RECORD_HEADER_SIZE};
-pub use recovery::{CommittedRecoveryReader, RawRecoveryReader};
 #[cfg(feature = "alloc")]
 pub use recovery::OwnedWalRecord;
+pub use recovery::{CommittedRecoveryReader, RawRecoveryReader};
 pub use wal::Wal;
