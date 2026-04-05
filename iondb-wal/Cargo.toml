@@ -13,5 +13,9 @@ alloc = ["iondb-core/alloc"]
 [dependencies]
 iondb-core.workspace = true
 
+[dev-dependencies]
+proptest = "1.10"
+iondb-io = { workspace = true, features = ["io-mem", "failpoint"] }
+
 [lints]
 workspace = true
