@@ -341,7 +341,7 @@ mod tests {
         assert!(result.is_none());
     }
 
-    /// Write two records, corrupt the CRC of the first, then scan_for_magic
+    /// Write two records, corrupt the CRC of the first, then `scan_for_magic`
     /// from byte 1 — it should return the offset of the second record.
     #[test]
     fn magic_scan_finds_second_record() {
@@ -364,7 +364,7 @@ mod tests {
         assert_eq!(found, Some(end1));
     }
 
-    /// A CircularHeader round-trips through encode/decode.
+    /// A `CircularHeader` round-trips through encode/decode.
     #[test]
     fn circular_header_round_trip() {
         let hdr = CircularHeader {
@@ -380,8 +380,8 @@ mod tests {
     }
 
     /// Corrupting any byte of a written circular header causes decode to return
-    /// Error::Corruption (for bytes in the CRC-protected region) or
-    /// Error::WalError (for the magic region).
+    /// `Error::Corruption` (for bytes in the CRC-protected region) or
+    /// `Error::WalError` (for the magic region).
     #[test]
     fn circular_header_corruption_detected() {
         let mut storage = [0u8; 256];

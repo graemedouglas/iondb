@@ -269,6 +269,8 @@ pub fn read_header(buf: &[u8]) -> Result<(Lsn, TxnId, RecordType, u16, u32)> {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+// Tests use unwrap for brevity; panics are acceptable in test code.
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -390,7 +392,7 @@ mod tests {
         assert_eq!(record_size(256, 65536), 65821);
     }
 
-    /// `read_header` returns the same LSN, TxnId, RecordType, and lengths as
+    /// `read_header` returns the same LSN, `TxnId`, `RecordType`, and lengths as
     /// a full `deserialize_from`.
     #[test]
     fn read_header_matches_full_deserialize() {

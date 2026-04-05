@@ -142,6 +142,8 @@ impl<T: IoBackend> IoBackend for FailpointIoBackend<T> {
 }
 
 #[cfg(test)]
+// Tests use unwrap/expect for brevity; truncation casts are safe for test-sized data.
+#[allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
 mod tests {
     use super::*;
 
